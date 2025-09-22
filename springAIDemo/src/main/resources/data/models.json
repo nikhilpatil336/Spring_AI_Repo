@@ -1,0 +1,57 @@
+[
+  {
+    "company": "OpenAI",
+    "model": "GPT-4o",
+    "contect_window_size": 128000
+  },
+  {
+    "company": "OpenAI",
+    "model": "GPT-4 Turbo",
+    "contect_window_size": 128000
+  },
+  {
+    "company": "OpenAI",
+    "model": "GPT-4.1",
+    "contect_window_size": 128000
+  },
+  {
+    "company": "OpenAI",
+    "model": "o1-preview",
+    "contect_window_size": 128000
+  },
+  {
+    "company": "OpenAI",
+    "model": "GPT-3.5 Turbo",
+    "contect_window_size": 128000
+  },
+  {
+    "company": "Anthropic",
+    "model": "Claude 3 Opus",
+    "contect_window_size": 128000
+  },
+  {
+    "company": "Anthropic",
+    "model": "Claude 3 Haiku",
+    "contect_window_size": 200000
+  },
+  {
+    "company": "Google",
+    "model": "Gemini 1.5 Pro (1M tier)",
+    "contect_window_size": 100000
+  },
+  {
+    "company": "Google",
+    "model": "Gemini 1.5 Flash",
+    "contect_window_size": 100000
+  },
+  {
+    "company": "Google",
+    "model": "Gemini 2.0 Pro",
+    "contect_window_size": 100000
+  },
+  {
+    "company": "Google",
+    "model": "Gemini 2.0 Flash",
+    "contect_window_size": 100000
+  }
+]

@@ -1,0 +1,31 @@
+Why chunk overlap helps:
+
+Prevents context loss: If a meaningful phrase or sentence spans the end of one chunk and the start of another, it could be lost without overlap.
+
+Improves semantic integrity: Embeddings are better when the chunk includes enough coherent context.
+
+Better retrieval recall: Overlap helps ensure that important phrases appear in at least one complete chunk, increasing chances of retrieval during search.
+
+🔁 Recommended overlap size:
+
+10–30% overlap is typical.
+
+For a chunk size of 100 words, try 20–30 words overlap.
+
+
+
+
+Is 100 a Good Chunk Size?
+
+100 words is on the small side for chunking, and might not always be optimal.
+
+🔍 Considerations:
+Chunk Size (words)	Pros	Cons
+<100	Fast retrieval, very focused chunks	May lose semantic meaning, too granular
+100–300	Good balance between granularity and context	Common default range
+>300	Better semantic coherence	Slower embedding/search; may dilute focus
+📌 Recommendation:
+
+Try chunk size of 200–300 words with 20–30 word overlap.
+
+You can fine-tune it based on your PDF content style (e.g., legal docs vs. blog articles).
