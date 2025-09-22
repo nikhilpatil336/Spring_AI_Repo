@@ -13,6 +13,7 @@ public class EmbeddingController {
     @Autowired
     private EmbeddingServiceNew embeddingService;
 
+    //this controller will take a simple text input and store it in the form of vector in redis.
     @PostMapping
     public String embedAndStore(@RequestBody EmbeddingRequest request) {
         return embeddingService.embedAndStore(request.getContent());
@@ -33,6 +34,7 @@ public class EmbeddingController {
         return embeddingService.answerWithContext(request.getContent());
     }
 
+    //this controller take path of PDF as input and store it as vector in redis.
     @PostMapping("/pdf")
     public String embedPdf(@RequestBody EmbeddingRequest request) {
         return embeddingService.embedPdfAndStore(request.getContent()); // content = PDF file path

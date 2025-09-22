@@ -51,15 +51,8 @@ public class PDF_Rag_Config {
             log.info("Creating vector store at {}", vectorStoreFile.getAbsolutePath());
             var config = PdfDocumentReaderConfig.builder().withPageExtractedTextFormatter(new ExtractedTextFormatter.Builder().build()).build();
             var pdfReader = new PagePdfDocumentReader(models, config);
-//            TextReader textReader = new TextReader(models);
-//            textReader.getCustomMetadata().put("Filename", "SEBI_PDF.txt");
-//            List<Document> documents = textReader.get();
-//            log.info("List of Documents: {}", documents);
             TokenTextSplitter tokenTextSplitter = new TokenTextSplitter();
             List<Document> splitDocuments = tokenTextSplitter.apply(pdfReader.get());
-//            log.info("Split Documents: {}", splitDocuments);
-
-//            simpleVectorStore.add(splitDocuments);
             simpleVectorStore.accept(splitDocuments);
             simpleVectorStore.save(vectorStoreFile);
         }

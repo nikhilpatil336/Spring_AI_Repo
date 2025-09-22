@@ -1,13 +1,10 @@
 package com.example.springAIDemo.new_redis_rag;
 
-//import com.example.dao.RedisDAO;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.http.ResponseEntity;
@@ -27,10 +24,8 @@ public class EmbeddingServiceNew {
     public EmbeddingServiceNew(ChatClient.Builder builder, ChatMemory chatMemory, EmbeddingModel embeddingModel, RedisDAO redisDAO, OllamaChatModel ollamaChatModel) {
         this.embeddingModel = embeddingModel;
         this.redisDAO = redisDAO;
-//        this.chatClient = ChatClient.create(ollamaChatModel);
         this.chatClient = builder.defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build()).build();
     }
-
 
     public String embedAndStore(String input) {
         // Get vector from Ollama via Spring AI
@@ -92,17 +87,12 @@ public class EmbeddingServiceNew {
     }
 
     public String summarizeText(String content) {
-//        Prompt prompt = new Prompt("Summarize the following text:\n\n" + content);
-//        ChatResponse response = chatClient.call(prompt);
-//        return response.getResult().getOutput().getContent();
 
         String response = chatClient.prompt()
                 .user(content)
                 .system("summarize this ")
                 .call()
                 .content();
-
-//        LOGGER.info("Response: {}", response);
 
         return String.valueOf(new ResponseEntity<>(response, org.springframework.http.HttpStatus.OK));
     }
@@ -157,11 +147,6 @@ public class EmbeddingServiceNew {
             %s
             """.formatted(context, question);
 
-        // Step 5: Pass to LLM
-//        Prompt prompt = new Prompt(promptText);
-//        ChatResponse response = chatClient.call(prompt);
-//        return response.getResult().getOutput().getContent();
-
         String response = chatClient.prompt()
                 .user(promptText)
                 .call()
@@ -182,7 +167,6 @@ public class EmbeddingServiceNew {
                 return "PDF is empty or could not be read.";
             }
 
-            // Optional: Split text into chunks (e.g., 500 tokens)
             List<String> chunks = splitIntoChunks(text, 300, 60); // Utility function
 
             int chunkCount = 0;
@@ -204,26 +188,6 @@ public class EmbeddingServiceNew {
             return "Failed to process PDF: " + e.getMessage();
         }
     }
-
-//    private List<String> splitIntoChunks(String text, int maxWords) {
-//        String[] words = text.split("\\s+");
-//        List<String> chunks = new ArrayList<>();
-//        StringBuilder chunk = new StringBuilder();
-//
-//        for (String word : words) {
-//            if (chunk.length() + word.length() > maxWords) {
-//                chunks.add(chunk.toString().trim());
-//                chunk = new StringBuilder();
-//            }
-//            chunk.append(word).append(" ");
-//        }
-//
-//        if (chunk.length() > 0) {
-//            chunks.add(chunk.toString().trim());
-//        }
-//
-//        return chunks;
-//    }
 
     private List<String> splitIntoChunks(String text, int chunkSize, int overlap) {
         String[] words = text.split("\\s+");

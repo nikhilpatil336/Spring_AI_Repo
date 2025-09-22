@@ -51,18 +51,6 @@ public class ImageController {
         var start_date = "18th march 2025";
         var last_date = "9th Sept 2025";
 
-//        var systemInstruction = """
-//                The given image is of stock market chart with daily interval.
-//                At the rightmost side of the image there is a price scale.
-//                At bottom of the chart there is a date scale.
-//                Start date of the chart is $start_date and last date is $last_date.
-//                The current trading price in the chart is $curr_price rupees.
-//                Take this price as current price and based on that analyse the other prices.
-//                3 horizontal lines in blue colour are added for you to understand better scale of image and candle stick and prices.
-//                At the rightmost side of the horizontal line the price is highlighted in blue, use that price as referance to analyse the price, candle stick and chart.
-//                Analyse the image in detail from technical analysis point of view.
-//                """;
-
         var systemInstruction = """
                 The given image is of stock market chart with daily interval.
                 At the rightmost side of the image there is a price scale.
