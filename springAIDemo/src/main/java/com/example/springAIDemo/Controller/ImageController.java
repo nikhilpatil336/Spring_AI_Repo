@@ -1,14 +1,24 @@
 package com.example.springAIDemo.Controller;
 
 import com.example.springAIDemo.model.FilePathRequest;
+import com.example.springAIDemo.model.VectorDB;
 import com.opencsv.CSVReader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.ollama.OllamaChatModel;
+import org.springframework.ai.reader.TextReader;
+import org.springframework.ai.transformer.splitter.TokenTextSplitter;
+import org.springframework.ai.vectorstore.SimpleVectorStore;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.MimeTypeUtils;
@@ -22,6 +32,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
@@ -32,6 +43,14 @@ public class ImageController {
 
     private ChatClient ollamaChatClient;
     private ChatClient memoryChatClient;
+
+    private SimpleVectorStore store = null;
+
+    @Autowired
+    public VectorDB vectorDB;
+
+    @Autowired
+    private EmbeddingModel embeddingModel;
 
     @Value("classpath:/images/reliance_3_month_chart_JanToMar.PNG")
     Resource sampleImage;
@@ -225,7 +244,7 @@ public class ImageController {
         var start_date = "31st December 2024";
         var last_date = "03rd April 2025";
 
-        try (CSVReader reader = new CSVReader(new FileReader("C:/Users/nikhil.neosoft/Downloads/reliance-JanToMar.csv"))) {
+        try (CSVReader reader = new CSVReader(new FileReader("C:Users//nikhil.neosoft//Downloads//reliance-JanToMar.csv"))) {
             List<String[]> rows = reader.readAll();
 
             if (rows.size() < 2) {
@@ -282,8 +301,10 @@ public class ImageController {
                 """, n, avgVolume, maxHigh, minLow, minLow, maxHigh);
 
             // Convert a few rows (e.g. last 10) to text for detailed context
-            List<String[]> detailedRows = dataRows.subList(Math.max(0, n - 10), n);
+//            List<String[]> detailedRows = dataRows.subList(Math.max(0, n - 10), n);
+            List<String[]> detailedRows = dataRows;
             String headerLine = String.join(" | ", headers);
+
 
             String detailedCsvText = detailedRows.stream()
                     .map(row -> String.join(" | ", row))
@@ -341,8 +362,7 @@ public class ImageController {
 
             LOGGER.info("Sending summary and detailed CSV snippet along with image for analysis...");
 
-            // Call LLM with combined image + CSV text + system instruction
-            String response = memoryChatClient.prompt()
+            String fullAnalysis = memoryChatClient.prompt()
                     .user(u -> {
                         u.text("Analyze the chart image and the following summarized CSV data together for a comprehensive technical analysis.");
                         u.media(MimeTypeUtils.IMAGE_PNG, sampleImage);
@@ -352,55 +372,138 @@ public class ImageController {
                     .call()
                     .content();
 
-            return ResponseEntity.ok(response);
+            LOGGER.info("Received full analysis response from LLM.");
+
+            // Optional: Parse structured parts (or just store full text)
+//            String analysisJson = extractStructuredOutput(fullAnalysis); // Or use fullAnalysis directly
+
+            // Store analysis summary in DB or memory
+//            storeStructuredAnalysis(analysisJson);
+
+            // Split analysis into chunks for embedding
+//            List<String> chunks = splitTextForEmbedding(fullAnalysis);
+//            List<String> chunks = simpleVectorStore(embeddingModel, fullAnalysis);
+//
+//            for (String chunk : chunks) {
+//                float[] embedding = embeddingClient.embed(chunk);
+//                vectorDB.storeEmbedding(embedding, chunk, Map.of("source", "stock_analysis", "date", last_date));
+//            }
+            SimpleVectorStore store = simpleVectorStore(embeddingModel, fullAnalysis);
+
+// If you still want to get chunks back from vector store:
+//            List<Document> documents = store.similaritySearch("technical analysis", 10); // or whatever your query is
+//
+//// Optional: Index it into your custom VectorDB too (if you're not relying only on SimpleVectorStore)
+//            for (Document doc : documents) {
+//                float[] embedding = embeddingModel.embed(doc.getText()); // or use your own EmbeddingClient if needed
+//                vectorDB.storeEmbedding(embedding, doc.getText(), Map.of("source", "stock_analysis", "date", last_date));
+//            }
+
+            LOGGER.info("Stored structured analysis and embeddings successfully.");
+
+            return ResponseEntity.ok(fullAnalysis);
 
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body("Error processing CSV: " + e.getMessage());
         }
     }
 
-    public String extractStructuredOutput(String fullAnalysis) {
-        // A basic implementation. You can enhance it to return a proper JSON object or Map.
-        StringBuilder structured = new StringBuilder();
-        String[] sections = {
-                "Summary of trend",
-                "Key support/resistance levels",
-                "Important candlestick patterns found",
-                "Volume and price action insights",
-                "Trading outlook and recommendations"
-        };
+//    public String extractStructuredOutput(String fullAnalysis) {
+//        // A basic implementation. You can enhance it to return a proper JSON object or Map.
+//        StringBuilder structured = new StringBuilder();
+//        String[] sections = {
+//                "Summary of trend",
+//                "Key support/resistance levels",
+//                "Important candlestick patterns found",
+//                "Volume and price action insights",
+//                "Trading outlook and recommendations"
+//        };
+//
+//        for (String section : sections) {
+//            int index = fullAnalysis.indexOf(section);
+//            if (index >= 0) {
+//                int nextSectionIndex = Arrays.stream(sections)
+//                        .filter(s -> !s.equals(section))
+//                        .mapToInt(s -> fullAnalysis.indexOf(s))
+//                        .filter(i -> i > index)
+//                        .min().orElse(fullAnalysis.length());
+//
+//                structured.append("### ").append(section).append("\n");
+//                structured.append(fullAnalysis, index, nextSectionIndex).append("\n\n");
+//            }
+//        }
+//
+//        return structured.toString();
+//    }
 
-        for (String section : sections) {
-            int index = fullAnalysis.indexOf(section);
-            if (index >= 0) {
-                int nextSectionIndex = Arrays.stream(sections)
-                        .filter(s -> !s.equals(section))
-                        .mapToInt(s -> fullAnalysis.indexOf(s))
-                        .filter(i -> i > index)
-                        .min().orElse(fullAnalysis.length());
+//    public void storeStructuredAnalysis(String structuredAnalysis) {
+//        try {
+//            Path path = Paths.get("structured_analysis.txt");
+//            Files.writeString(path, structuredAnalysis, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+//            LOGGER.info("Structured analysis stored at: " + path.toAbsolutePath());
+//        } catch (IOException e) {
+//            LOGGER.error("Failed to store structured analysis", e);
+//        }
+//    }
 
-                structured.append("### ").append(section).append("\n");
-                structured.append(fullAnalysis, index, nextSectionIndex).append("\n\n");
-            }
-        }
+//    public List<String> splitTextForEmbedding(String fullText) {
+//        return Arrays.stream(fullText.split("\n\n"))
+//                .map(String::trim)
+//                .filter(s -> s.length() > 30)
+//                .collect(Collectors.toList());
+//    }
 
-        return structured.toString();
+    public SimpleVectorStore simpleVectorStore(EmbeddingModel embeddingModel, String fullText)
+    {
+        SimpleVectorStore simpleVectorStore = SimpleVectorStore.builder(embeddingModel).build();
+            TextReader textReader = new TextReader(fullText);
+//            textReader.getCustomMetadata().put("Filename", "models.txt");
+            List<Document> documents = textReader.get();
+            TokenTextSplitter tokenTextSplitter = new TokenTextSplitter();
+            List<Document> splitDocuments = tokenTextSplitter.apply(documents);
+
+            simpleVectorStore.add(splitDocuments);
+
+            LOGGER.info("stroed simple vector is: " + simpleVectorStore.toString());
+//            simpleVectorStore.save(vectorStoreFile);
+//        }
+
+        return simpleVectorStore;
     }
 
-    public void storeStructuredAnalysis(String structuredAnalysis) {
+
+    @PostMapping("/memory/askAboutChart")
+    public ResponseEntity<?> imageToTextAskAboutChart(@RequestBody String input) {
         try {
-            Path path = Paths.get("structured_analysis.txt");
-            Files.writeString(path, structuredAnalysis, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            LOGGER.info("Structured analysis stored at: " + path.toAbsolutePath());
-        } catch (IOException e) {
-            LOGGER.error("Failed to store structured analysis", e);
-        }
-    }
+            float[] questionEmbedding = embeddingModel.embed(input);
 
-    public List<String> splitTextForEmbedding(String fullText) {
-        return Arrays.stream(fullText.split("\n\n"))
-                .map(String::trim)
-                .filter(s -> s.length() > 30)
-                .collect(Collectors.toList());
+            // Retrieve top-k relevant analysis chunks from vector DB
+            List<String> relevantChunks = vectorDB.search(questionEmbedding, 10);
+
+            // Combine retrieved chunks as context
+            String combinedContext = String.join("\n\n", relevantChunks);
+
+            String prompt = """
+            You are an expert technical stock market analyst.
+            Use the following previously extracted analysis info to answer the user's question.
+            Do not re-analyze raw data or charts. Base your answer solely on the given context.
+
+            Context:
+            %s
+
+            User question:
+            %s
+            """.formatted(combinedContext, input);
+
+            String answer = memoryChatClient.prompt()
+                    .system("Answer based on provided context, be concise and actionable.")
+                    .user(prompt)
+                    .call()
+                    .content();
+
+            return ResponseEntity.ok(answer);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Error processing request: " + e.getMessage());
+        }
     }
 }
