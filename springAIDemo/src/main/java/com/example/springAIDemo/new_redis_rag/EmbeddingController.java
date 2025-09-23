@@ -1,8 +1,5 @@
 package com.example.springAIDemo.new_redis_rag;
 
-//import com.example.model.EmbeddingRequest;
-//import com.example.service.EmbeddingService;
-import com.example.springAIDemo.new_redis_rag.EmbeddingRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
