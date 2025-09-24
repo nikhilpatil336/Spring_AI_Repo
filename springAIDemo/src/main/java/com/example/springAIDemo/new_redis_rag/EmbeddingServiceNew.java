@@ -120,7 +120,7 @@ public class EmbeddingServiceNew {
         // Step 3: Sort by similarity (top 3 results)
         List<String> topKeys = similarityMap.entrySet().stream()
                 .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
-                .limit(10)
+                .limit(5)
                 .map(Map.Entry::getKey)
                 .toList();
 
