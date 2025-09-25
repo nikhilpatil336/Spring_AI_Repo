@@ -32,8 +32,8 @@ public class RedisDAO {
         jedis.hset(key.getBytes(), redisMap);
     }
 
-    public Set<String> getAllDocumentKeys() {
-        return jedis.keys("Manual:*");  // WARNING: use only in dev, inefficient in prod
+    public Set<String> getAllDocumentKeys(String key) {
+        return jedis.keys(key + ":*");  // WARNING: use only in dev, inefficient in prod
     }
 
     public float[] getVector(String key) {

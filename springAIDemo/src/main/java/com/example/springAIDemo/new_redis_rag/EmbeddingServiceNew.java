@@ -53,7 +53,7 @@ public class EmbeddingServiceNew {
         float[] queryVector = queryEmbeddingList.get(0);
 
         // Step 2: Scan Redis for all stored vectors (inefficient but works for small scale)
-        Set<String> keys = redisDAO.getAllDocumentKeys();
+        Set<String> keys = redisDAO.getAllDocumentKeys("Manual");
 
         double bestSimilarity = -1.0;
         String bestMatchContent = null;
@@ -106,7 +106,7 @@ public class EmbeddingServiceNew {
         float[] queryVector = queryEmbeddingList.get(0);
 
         // Step 2: Search for similar documents
-        Set<String> keys = redisDAO.getAllDocumentKeys();
+        Set<String> keys = redisDAO.getAllDocumentKeys("Manual");
         Map<String, Double> similarityMap = new HashMap<>();
 
         for (String key : keys) {
