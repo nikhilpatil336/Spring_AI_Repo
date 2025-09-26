@@ -37,6 +37,8 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -245,6 +247,132 @@ public class ImageController {
             return ResponseEntity.internalServerError().body("Error processing CSV: " + e.getMessage());
         }
     }
+
+    @PostMapping("/csv/v1/analyze")
+    public ResponseEntity<String> analyzeCsvFromPath_v1(@RequestBody FilePathRequest request) {
+        String filePath = request.getPath();
+
+        try (CSVReader reader = new CSVReader(new FileReader(filePath))) {
+            List<String[]> rows = reader.readAll();
+
+            if (rows.size() < 2) {
+                return ResponseEntity.badRequest().body("CSV must contain at least one row of data.");
+            }
+
+            String[] headers = rows.get(0);
+            int maxRows = 70;
+            List<String[]> dataRows = rows.subList(1, Math.min(rows.size(), maxRows + 1));
+
+            // Identify column indices
+            int dateIndex = 0;
+            int openIndex = -1, highIndex = -1, lowIndex = -1, closeIndex = -1, volumeIndex = -1;
+
+            for (int i = 0; i < headers.length; i++) {
+                String h = headers[i].toLowerCase();
+                if (h.contains("date")) dateIndex = i;
+                else if (h.contains("open")) openIndex = i;
+                else if (h.contains("high")) highIndex = i;
+                else if (h.contains("low")) lowIndex = i;
+                else if (h.contains("close") && closeIndex == -1) closeIndex = i;
+                else if (h.contains("volume")) volumeIndex = i;
+            }
+
+            if (openIndex == -1 || highIndex == -1 || lowIndex == -1 || closeIndex == -1 || volumeIndex == -1) {
+                return ResponseEntity.badRequest().body("CSV must include columns: OPEN, HIGH, LOW, CLOSE, VOLUME");
+            }
+
+            // Clean headers
+            String cleanedHeader = Arrays.stream(headers)
+                    .map(String::trim)
+                    .collect(Collectors.joining(" | "));
+
+            // Clean and format rows for LLM
+            List<String> cleanedRows = new ArrayList<>();
+            DateTimeFormatter inputFormat = DateTimeFormatter.ofPattern("dd-MMM-yy", Locale.ENGLISH);
+            DateTimeFormatter outputFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+
+            for (String[] row : dataRows) {
+                StringBuilder cleanedRow = new StringBuilder();
+                for (int i = 0; i < row.length; i++) {
+                    String cell = row[i].replace(",", "").trim();
+
+                    // Convert date format if it's the date column
+                    if (i == dateIndex) {
+                        try {
+                            cell = LocalDate.parse(cell, inputFormat).format(outputFormat);
+                        } catch (Exception e) {
+                            // keep original if parsing fails
+                        }
+                    }
+
+                    cleanedRow.append(cell);
+                    if (i < row.length - 1) {
+                        cleanedRow.append(" | ");
+                    }
+                }
+                cleanedRows.add(cleanedRow.toString());
+            }
+
+            String tableData = String.join("\n", cleanedRows);
+
+            LOGGER.info("Cleaned table data is: \n" + tableData);
+
+            // System prompt to guide LLM
+            String systemInstruction = """
+            You are an expert technical stock market analyst specializing in interpreting OHLCV (Open, High, Low, Close, Volume) data.
+
+            Analyze the following data table and provide:
+            1. **Trend Analysis**: Determine the overall trend (uptrend, downtrend, or sideways).
+            2. **Support & Resistance**: List key levels with exact dates they were tested.
+            3. **Candlestick Patterns**: Detect and name specific patterns (doji, engulfing, hammer, shooting star, etc.) with corresponding dates and what they imply.
+            4. **Volume Analysis**: Identify volume spikes or drops and how they correlate with price movements, with dates.
+            5. **Breakouts & Gaps**: Highlight any major breakouts, breakdowns, or price gaps and relevant dates.
+            6. **Final Outlook**: Conclude with a concise trading outlook (bullish, bearish, or neutral), and why.
+
+            Rules:
+            - Always reference specific dates from the table for each insight.
+            - Only use the data provided. No assumptions or external data.
+            - Keep analysis structured and easy to follow using bullet points or short paragraphs.
+        """;
+
+            // User prompt with cleaned CSV data
+            String userPrompt = """
+                Here is the stock price data for the last %s trading days in the format:
+                
+                %s
+                %s
+                
+                Act like a professional technical analyst and analyze this stock. Specifically provide:
+                
+                1. Short-term and medium-term trend direction
+                2. Key support and resistance levels
+                3. Moving average crossover signals (10-day, 20-day, 50-day)
+                4. Volume analysis (any spikes or divergence)
+                5. Bullish/bearish candlestick patterns (if any)
+                6. Technical indicators or inferred overbought/oversold conditions
+                7. A final summary with your outlook: bullish, bearish, or neutral
+                
+                Only use the data provided. Be concise and analytical.                                                                             
+            """.formatted(maxRows, cleanedHeader, tableData);
+
+            LOGGER.info("userPrompt is: " + userPrompt);
+
+            // Call LLM
+            String analysisResponse = memoryChatClient.prompt()
+                    .user(userPrompt)
+                    .system(systemInstruction)
+                    .call()
+                    .content();
+
+            LOGGER.info("Received technical analysis response from LLM.");
+            return ResponseEntity.ok(analysisResponse);
+
+        } catch (Exception e) {
+            LOGGER.error("Error analyzing CSV", e);
+            return ResponseEntity.internalServerError().body("Error processing CSV: " + e.getMessage());
+        }
+    }
+
 
     @GetMapping("/memory/analyseImageAndCSV")
     public ResponseEntity<?> imageToTextWithCSVInMemory() {
