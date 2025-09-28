@@ -5,8 +5,11 @@ import com.example.springAIDemo.model.SupportResistanceLevel;
 import com.example.springAIDemo.model.TechnicalPattern;
 import com.example.springAIDemo.model.VectorDB;
 import com.example.springAIDemo.new_redis_rag.EmbeddingServiceNew;
+import com.example.springAIDemo.utility.Utility;
 import com.opencsv.CSVReader;
 import com.opencsv.exceptions.CsvException;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -42,6 +45,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static java.lang.Math.round;
+
 @RestController
 @RequestMapping("/image")
 public class ImageController {
@@ -68,16 +73,6 @@ public class ImageController {
     public ImageController(ChatClient.Builder builder, ChatMemory chatMemory, OllamaChatModel ollamaChatModel) {
         this.ollamaChatClient = ChatClient.create(ollamaChatModel);
         this.memoryChatClient = builder.defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build()).build();
-    }
-
-    @GetMapping("/analyse")
-    public ResponseEntity<?> imageToText() {
-        return ResponseEntity.ok(ollamaChatClient.prompt().user(u -> {
-                    u.text("can you please describe what you see in the image.");
-                    u.media(MimeTypeUtils.IMAGE_PNG, sampleImage);
-                })
-                .call()
-                .content());
     }
 
     @GetMapping("/memory/analyse")
@@ -373,6 +368,561 @@ public class ImageController {
         }
     }
 
+    @PostMapping("/csv/v2/analyze")
+    public ResponseEntity<String> analyzeCsvFromPath_v2(@RequestBody FilePathRequest request) {
+        String filePath = request.getPath();
+
+        try (CSVReader reader = new CSVReader(new FileReader(filePath))) {
+            List<String[]> rows = reader.readAll();
+
+            JSONArray schema = new JSONArray();
+            schema.put("Date");
+            schema.put("Open");
+            schema.put("High");
+            schema.put("Low");
+            schema.put("Close");
+            schema.put("Volume");
+            schema.put("Change");
+            schema.put("ChangePct");
+            schema.put("MA7");
+            schema.put("MA30");
+            schema.put("EMA12");
+            schema.put("EMA26");
+            schema.put("MACD");
+            schema.put("MACDSignal");
+            schema.put("MACDHist");
+            schema.put("RSI14");
+            schema.put("ATR14");
+            schema.put("BollingerUpper");
+            schema.put("BollingerLower");
+            schema.put("OBV");
+
+            JSONArray dataArray = new JSONArray();
+
+            // Skip header row
+            rows.remove(0);
+
+            List<Double> closes = new ArrayList<>();
+            List<Double> highs = new ArrayList<>();
+            List<Double> lows = new ArrayList<>();
+            List<Long> volumes = new ArrayList<>();
+
+            // OBV calculation
+            double obv = 0;
+
+            // For EMA
+            Double ema12 = null, ema26 = null;
+            double k12 = 2.0 / (12 + 1);
+            double k26 = 2.0 / (26 + 1);
+
+            // For MACD Signal (9-day EMA of MACD)
+            Double macdSignal = null;
+            double k9 = 2.0 / (9 + 1);
+            List<Double> macdHistory = new ArrayList<>();
+
+            for (int i = 0; i < rows.size(); i++) {
+                String[] row = rows.get(i);
+
+                String date = row[0].trim();
+                double open = Double.parseDouble(row[2].replace(",", ""));
+                double high = Double.parseDouble(row[3].replace(",", ""));
+                double low = Double.parseDouble(row[4].replace(",", ""));
+                double close = Double.parseDouble(row[7].replace(",", ""));
+                long volume = Long.parseLong(row[11].replace(",", ""));
+
+                // Save values
+                closes.add(close);
+                highs.add(high);
+                lows.add(low);
+                volumes.add(volume);
+
+                // Precompute metrics
+                double change = close - open;
+                double changePct = (open != 0) ? (change / open) * 100.0 : 0.0;
+
+                // Moving averages
+                Double ma7 = Utility.movingAverage(closes, 7);
+                Double ma30 = Utility.movingAverage(closes, 30);
+
+                // EMA12 and EMA26
+                if (ema12 == null) ema12 = close; else ema12 = (close - ema12) * k12 + ema12;
+                if (ema26 == null) ema26 = close; else ema26 = (close - ema26) * k26 + ema26;
+
+                // MACD
+                double macd = ema12 - ema26;
+                if (macdSignal == null) macdSignal = macd; else macdSignal = (macd - macdSignal) * k9 + macdSignal;
+                double macdHist = macd - macdSignal;
+                macdHistory.add(macd);
+
+                // RSI14
+                Double rsi14 = Utility.computeRSI(closes, 14);
+
+                // ATR14
+                Double atr14 = Utility.computeATR(highs, lows, closes, 14);
+
+                // Bollinger Bands (20-day)
+                Double[] bollinger = Utility.computeBollinger(closes, 20);
+
+                // OBV
+                if (i > 0) {
+                    if (close > closes.get(i - 1)) obv += volume;
+                    else if (close < closes.get(i - 1)) obv -= volume;
+                }
+
+                // Build compact row
+                JSONArray record = new JSONArray();
+                record.put(date);
+                record.put(round(open));
+                record.put(round(high));
+                record.put(round(low));
+                record.put(round(close));
+                record.put(volume);
+                record.put(round(change));
+                record.put(round(changePct));
+                record.put(ma7 != null ? round(ma7) : JSONObject.NULL);
+                record.put(ma30 != null ? round(ma30) : JSONObject.NULL);
+                record.put(round(ema12));
+                record.put(round(ema26));
+                record.put(round(macd));
+                record.put(round(macdSignal));
+                record.put(round(macdHist));
+                record.put(rsi14 != null ? round(rsi14) : JSONObject.NULL);
+                record.put(atr14 != null ? round(atr14) : JSONObject.NULL);
+                record.put(bollinger[0] != null ? round(bollinger[0]) : JSONObject.NULL);
+                record.put(bollinger[1] != null ? round(bollinger[1]) : JSONObject.NULL);
+                record.put(round(obv));
+
+                dataArray.put(record);
+            }
+
+            JSONObject result = new JSONObject();
+            result.put("schema", schema);
+            result.put("data", dataArray);
+
+            return ResponseEntity.ok(result.toString());
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error processing CSV: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/csv/v3/analyze")
+    public ResponseEntity<String> analyzeCsvFromPath_v3(@RequestBody FilePathRequest request) {
+        String filePath = request.getPath();
+
+        JSONObject preComputedData = computeInvestmentView(filePath);
+
+        LOGGER.info("Precomputed Data: " + preComputedData);
+
+        // Extract data for prompt
+        String recentDailyJson = preComputedData.getJSONArray("recent_daily").toString();
+        String monthlySummaryJson = preComputedData.getJSONArray("monthly_summary").toString();
+        String signalsJson = preComputedData.getJSONArray("signals").toString();
+
+        // Placeholder user profile (replace with real user data if available)
+        String userRiskTolerance = "medium";
+        String userInvestmentHorizon = "6 months";
+        String userPortfolioNotes = "No previous portfolio data";
+
+        // System instruction
+//        String systemInstruction = """
+//            You are a highly skilled technical stock market analyst.
+//
+//            You specialize in interpreting OHLCV (Open, High, Low, Close, Volume) data and technical indicators such as:
+//            - Moving averages (SMA, EMA)
+//            - MACD
+//            - RSI
+//            - Bollinger Bands
+//            - Candlestick patterns (doji, hammer, engulfing, shooting star, etc.)
+//
+//            Your task is to provide detailed, date-specific, actionable analysis of the stock using only the data provided.
+//
+//            Rules:
+//            1. Always reference exact dates from the data.
+//            2. Only use the supplied data. Do not assume or fetch external info.
+//            3. Structure your output in a clear, organized way:
+//               - Trend Analysis
+//               - Support & Resistance levels
+//               - Candlestick Patterns
+//               - Volume Analysis
+//               - Breakouts, Gaps, and Signals
+//               - Technical Indicator insights (RSI, MACD, Bollinger, etc.)
+//               - Final Outlook (Bullish, Bearish, Neutral) with reasoning
+//            4. If no signals or patterns are detected, explicitly mention that.
+//            5. Keep your explanation concise, analytical, and professional.
+//            """;
+
+        String systemInstruction = String.format("""
+            You are a highly skilled technical stock market analyst.
+            Analyze the provided OHLCV data of %s company and generate detailed, date-specific, actionable insights.
+            Focus only on the data provided.
+            Include:
+            - Trend analysis (short/medium/long term)
+            - Support/resistance levels (date-specific)
+            - Candlestick patterns
+            - Volume analysis
+            - Technical indicator signals
+            - Breakouts/gaps
+            - Final outlook (bullish/bearish/neutral)
+        """, request.getCompanyName());
+
+        // User prompt
+        String userPrompt = String.format("""
+            User Profile:
+            - Risk Tolerance: %s
+            - Investment Horizon: %s
+            - Previous Portfolio Notes: %s
+
+            Stock Data:
+            - Recent Daily (last 30–60 days): %s
+            - Monthly Summary: %s
+            - Signals: %s
+
+            Your task:
+            1. Short-term (days to weeks) trend analysis
+            2. Medium-term (weeks to months) trend analysis
+            3. Identify key support and resistance levels (with dates with year and prices)
+            4. Given the 60 days data in recent_daily data, detect moving average crossovers (10, 20, 50-day). Columns names are present in recent_daily_columns
+            5. Analyse and find out the candlestick patterns with exact dates based on the data given 60 days data in recent_daily. Columns names are present in recent_daily_columns
+            6. Volume spikes or divergence patterns
+            7. Technical indicator insights (RSI, MACD, Bollinger Bands, overbought/oversold)
+            8. Highlight any breakout or gap events
+            9. Provide a final trading outlook (buy/sell/hold) and reasoning
+            10. If no signals are present, explicitly note that
+
+            Only use the data provided above. Be analytical, concise, and reference exact dates.
+            """,
+                userRiskTolerance,
+                userInvestmentHorizon,
+                userPortfolioNotes,
+                recentDailyJson,
+                monthlySummaryJson,
+                signalsJson
+        );
+
+        // Call your LLM
+        try {
+            String analysisResponse = memoryChatClient.prompt()
+                    .system(systemInstruction)
+                    .user(userPrompt)
+                    .call()
+                    .content();
+
+            return ResponseEntity.ok(analysisResponse);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.status(500).body("Error generating analysis: " + e.getMessage());
+        }
+    }
+
+    private JSONObject computeInvestmentView(String path) {
+
+        try (CSVReader reader = new CSVReader(new FileReader(path))) {
+            List<String[]> rows = reader.readAll();
+            rows.remove(0); // skip header
+
+            List<Double> closes = new ArrayList<>();
+            List<Double> highs = new ArrayList<>();
+            List<Double> lows = new ArrayList<>();
+            JSONArray recentDaily = new JSONArray();
+            JSONArray monthlySummary = new JSONArray();
+            JSONArray signals = new JSONArray();
+
+            JSONArray recentDailyColumns = new JSONArray(Arrays.asList(
+                    "Date","Open","High","Low","Close","Volume",
+                    "Change","ChangePct",
+                    "MA7","MA10","MA20","MA30","MA50",
+                    "RSI14",
+                    "MACD","MACDSignal","MACDHistogram",
+                    "BollUpper","BollLower"
+            ));
+            JSONArray monthlySummaryColumns = new JSONArray(Arrays.asList(
+                    "Month","Open","High","Low","Close","Volume"
+            ));
+            JSONArray signalsColumns = new JSONArray(Arrays.asList(
+                    "Date","Type","Event"
+            ));
+            JSONArray investmentViewColumns = new JSONArray(Arrays.asList(
+                    "Term","Trend","Risk","Signal","RSI"
+            ));
+
+            // Maps for monthly aggregation
+            Map<String, List<String[]>> monthlyMap = new LinkedHashMap<>();
+
+            // Process rows in reverse to easily get last 60 days
+            int totalRows = rows.size();
+//            int startIndex = Math.max(0, totalRows - 60); // get the last 60 rows
+
+//            for (int i = startIndex; i < totalRows; i++) {
+//            for (int i = 0; i < totalRows; i++) {
+            for (int i = totalRows - 1; i >= 0; i--) {
+                String[] row = rows.get(i);
+//                String date = row[0].trim();
+
+                LocalDate parsedDate = LocalDate.parse(row[0].trim(), Utility.INPUT_DATE_FORMAT);
+                String isoDate = parsedDate.format(Utility.ISO_DATE_FORMAT);
+
+                double open = Double.parseDouble(row[2].replace(",", ""));
+                double high = Double.parseDouble(row[3].replace(",", ""));
+                double low = Double.parseDouble(row[4].replace(",", ""));
+                double close = Double.parseDouble(row[7].replace(",", ""));
+                long volume = Long.parseLong(row[11].replace(",", ""));
+
+                closes.add(close);
+                highs.add(high);
+                lows.add(low);
+
+                // Precompute daily metrics
+                double change = close - open;
+                double changePct = (open != 0) ? (change / open) * 100.0 : 0.0;
+
+                // Moving averages
+                Double ma7 = movingAverage(closes, 7);
+                Double ma10 = movingAverage(closes, 10);
+                Double ma20 = movingAverage(closes, 20);
+                Double ma30 = movingAverage(closes, 30);
+                Double ma50 = movingAverage(closes, 50);
+
+                Double rsi14 = computeRSI(closes, 14);
+
+                // MACD (12,26,9)
+//                Double macd = computeEMA(closes, 12) - computeEMA(closes, 26);
+//                Double ema12 = computeEMA(closes, 12);
+//                Double ema26 = computeEMA(closes, 26);
+//                Double macd = null;
+//                if (ema12 != null && ema26 != null) {
+//                    macd = ema12 - ema26;
+//                }
+//                Double signal = computeEMA(Collections.singletonList(macd), 9); // placeholder, better: maintain EMA history
+//                Double histogram = (signal != null) ? macd - signal : null;
+
+                List<Double> macdSeries = new ArrayList<>();
+                Double ema12 = computeEMA(closes, 12);
+                Double ema26 = computeEMA(closes, 26);
+                Double macd = null;
+                Double signal = null;
+                Double histogram = null;
+
+                if (ema12 != null && ema26 != null) {
+                    macd = ema12 - ema26;
+                    macdSeries.add(macd);
+
+                    if (macdSeries.size() >= 9) {
+                        signal = computeEMA(macdSeries, 9);
+                        histogram = macd - signal;
+                    }
+                }
+
+                // Bollinger Bands (20-period, 2 std dev)
+                Double[] boll = computeBollinger(closes, 20, 2.0);
+                Double bollUpper = boll[0];
+                Double bollLower = boll[1];
+
+//                if (closes.size() >= 7) {
+//                    ma7 = closes.subList(closes.size() - 7, closes.size()).stream()
+//                            .mapToDouble(Double::doubleValue).average().orElse(0.0);
+//                }
+//                if (closes.size() >= 30) {
+//                    ma30 = closes.subList(closes.size() - 30, closes.size()).stream()
+//                            .mapToDouble(Double::doubleValue).average().orElse(0.0);
+//                }
+
+                // Build recent daily row
+//                if (recentDaily.length() < 60) { // last 60 days
+                if (i <= totalRows - 60) {
+                    JSONArray record = new JSONArray();
+                    record.put(isoDate);
+                    record.put(round(open));
+                    record.put(round(high));
+                    record.put(round(low));
+                    record.put(round(close));
+                    record.put(volume);
+                    record.put(round(change));
+                    record.put(round(changePct));
+                    record.put(ma7 != null ? round(ma7) : JSONObject.NULL);
+                    record.put(ma10 != null ? round(ma10) : JSONObject.NULL);
+                    record.put(ma20 != null ? round(ma20) : JSONObject.NULL);
+                    record.put(ma30 != null ? round(ma30) : JSONObject.NULL);
+                    record.put(ma50 != null ? round(ma50) : JSONObject.NULL);
+                    record.put(rsi14 != null ? round(rsi14) : JSONObject.NULL);
+                    record.put(macd != null ? round(macd) : JSONObject.NULL);
+                    record.put(signal != null ? round(signal) : JSONObject.NULL);
+                    record.put(histogram != null ? round(histogram) : JSONObject.NULL);
+                    record.put(bollUpper != null ? round(bollUpper) : JSONObject.NULL);
+                    record.put(bollLower != null ? round(bollLower) : JSONObject.NULL);
+                    recentDaily.put(record);
+                }
+
+                // Collect monthly data for aggregation
+                String monthKey = parsedDate.format(Utility.ISO_MONTH_FORMAT); // e.g., "Apr-25"
+                monthlyMap.computeIfAbsent(monthKey, k -> new ArrayList<>()).add(row);
+
+                // Example: precompute signals (simple version)
+                // MACD crossover placeholder: bullish if close > ma12 (you can implement real MACD)
+//                if (ma12(closes) != null && ma26(closes) != null) {
+//                    double macd = ma12(closes) - ma26(closes);
+//                    double signal = ma9(macd);
+//                    if (macd > signal) {
+//                        JSONObject sig = new JSONObject();
+//                        sig.put("date", isoDate);
+//                        sig.put("type", "MACD");
+//                        sig.put("event", "Bullish crossover");
+//                        signals.put(sig);
+//                    } else if (macd < signal) {
+//                        JSONObject sig = new JSONObject();
+//                        sig.put("date", isoDate);
+//                        sig.put("type", "MACD");
+//                        sig.put("event", "Bearish crossover");
+//                        signals.put(sig);
+//                    }
+//                }
+
+                if (macd != null && signal != null) {
+                    if (macd > signal) {
+                        JSONObject sig = new JSONObject();
+                        sig.put("date", isoDate);
+                        sig.put("type", "MACD");
+                        sig.put("event", "Bullish crossover");
+                        signals.put(sig);
+                    } else if (macd < signal) {
+                        JSONObject sig = new JSONObject();
+                        sig.put("date", isoDate);
+                        sig.put("type", "MACD");
+                        sig.put("event", "Bearish crossover");
+                        signals.put(sig);
+                    }
+                }
+
+                // RSI, Bollinger, etc. can be computed similarly
+            }
+
+            if (signals.length() == 0) {
+                JSONObject noSignal = new JSONObject();
+                noSignal.put("note", "No MACD crossovers detected in the processed period.");
+                signals.put(noSignal);
+            }
+
+            // Compute monthly summary
+            // Monthly summary with realistic support/resistance
+            for (Map.Entry<String, List<String[]>> entry : monthlyMap.entrySet()) {
+                String month = entry.getKey();
+                List<String[]> monthRows = entry.getValue();
+
+                double open = Double.parseDouble(monthRows.get(0)[2].replace(",", ""));
+                double close = Double.parseDouble(monthRows.get(monthRows.size() - 1)[7].replace(",", ""));
+                double high = monthRows.stream().mapToDouble(r -> Double.parseDouble(r[3].replace(",", ""))).max().orElse(0);
+                double low = monthRows.stream().mapToDouble(r -> Double.parseDouble(r[4].replace(",", ""))).min().orElse(0);
+                long volume = monthRows.stream().mapToLong(r -> Long.parseLong(r[11].replace(",", ""))).sum();
+
+                JSONArray monthlyRow = new JSONArray();
+                monthlyRow.put(month);
+                monthlyRow.put(round(open));
+                monthlyRow.put(round(high));
+                monthlyRow.put(round(low));
+                monthlyRow.put(round(close));
+                monthlyRow.put(volume);
+                monthlySummary.put(monthlyRow);
+            }
+
+            // Build investment_view (very basic example)
+            JSONObject investmentView = new JSONObject();
+            investmentView.put("short_term", computeInvestmentView(recentDaily));
+            investmentView.put("medium_term", computeInvestmentView(monthlySummary));
+            investmentView.put("long_term", computeInvestmentView(monthlySummary)); // could be 1-year aggregate
+
+            // Meta information
+            JSONObject meta = new JSONObject();
+            meta.put("symbol", "XYZ");
+            meta.put("currency", "INR");
+            meta.put("data_range", rows.size() + " days");
+
+            JSONObject result = new JSONObject();
+            result.put("recent_daily_columns", recentDailyColumns);
+            result.put("recent_daily", recentDaily);
+            result.put("monthly_summary_columns", monthlySummaryColumns);
+            result.put("monthly_summary", monthlySummary);
+            result.put("signals_columns", signalsColumns);
+            result.put("signals", signals);
+            result.put("investment_view_columns", investmentViewColumns);
+            result.put("investment_view", investmentView);
+            result.put("meta", meta);
+
+            return result;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            LOGGER.info("Error processing CSV: " + e.getMessage());
+
+            return new JSONObject();
+        }
+    }
+
+    // Helper rounding
+    private double round(double value) {
+        return Math.round(value * 100.0) / 100.0;
+    }
+
+    // Placeholder functions for EMA/MACD/RSI
+    private Double ma12(List<Double> closes) { return closes.size() >= 12 ? closes.subList(closes.size()-12, closes.size()).stream().mapToDouble(Double::doubleValue).average().orElse(0) : null; }
+    private Double ma26(List<Double> closes) { return closes.size() >= 26 ? closes.subList(closes.size()-26, closes.size()).stream().mapToDouble(Double::doubleValue).average().orElse(0) : null; }
+    private double ma9(double value) { return value; } // placeholder
+
+    private Double movingAverage(List<Double> data, int period) {
+        if (data.size() < period) return null;
+        return data.subList(data.size() - period, data.size()).stream()
+                .mapToDouble(Double::doubleValue).average().orElse(0.0);
+    }
+
+    private Double computeEMA(List<Double> data, int period) {
+        if (data.size() < period) return null;
+        double k = 2.0 / (period + 1);
+        double ema = data.get(0);
+        for (int i = 1; i < data.size(); i++) {
+            ema = (data.get(i) * k) + (ema * (1 - k));
+        }
+        return ema;
+    }
+
+    private Double computeRSI(List<Double> closes, int period) {
+        if (closes.size() < period + 1) return null;
+        double gains = 0, losses = 0;
+        for (int i = closes.size() - period; i < closes.size(); i++) {
+            double change = closes.get(i) - closes.get(i - 1);
+            if (change >= 0) gains += change;
+            else losses -= change;
+        }
+        double rs = (losses == 0) ? 100 : (gains / losses);
+        return 100 - (100 / (1 + rs));
+    }
+
+    private Double[] computeBollinger(List<Double> closes, int period, double numStdDev) {
+        if (closes.size() < period) return new Double[]{null, null};
+        List<Double> window = closes.subList(closes.size() - period, closes.size());
+        double mean = window.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+        double variance = window.stream().mapToDouble(v -> Math.pow(v - mean, 2)).sum() / period;
+        double stdDev = Math.sqrt(variance);
+        return new Double[]{mean + numStdDev * stdDev, mean - numStdDev * stdDev};
+    }
+
+//    private double round(double value) {
+//        return Math.round(value * 100.0) / 100.0;
+//    }
+    // Compute investment view (trend, risk, signal)
+    private JSONObject computeInvestmentView(JSONArray rows) {
+        JSONObject view = new JSONObject();
+        // Basic example: trend = bullish if last close > first close
+        if (rows.length() > 1) {
+            double firstClose = rows.getJSONArray(0).getDouble(4);
+            double lastClose = rows.getJSONArray(rows.length()-1).getDouble(4);
+            view.put("trend", lastClose >= firstClose ? "bullish" : "bearish");
+            view.put("rsi", 50); // placeholder
+            view.put("signal", "MACD bullish crossover"); // placeholder
+            view.put("risk", "medium"); // placeholder
+        }
+        return view;
+    }
 
     @GetMapping("/memory/analyseImageAndCSV")
     public ResponseEntity<?> imageToTextWithCSVInMemory() {
@@ -531,17 +1081,17 @@ public class ImageController {
     @GetMapping("/memory/enhanced/analyseImageAndCSV")
     public ResponseEntity<?> analyzeImageAndCSV() {
         try {
-            List<String[]> csvRows = loadCSV("C:Users//nikhil.neosoft//Downloads//reliance-JanToMar.csv");
-            List<TechnicalPattern> patterns = extractPatternsFromCSV(csvRows);
+            List<String[]> csvRows = Utility.loadCSV("C:Users//nikhil.neosoft//Downloads//reliance-JanToMar.csv");
+            List<TechnicalPattern> patterns = Utility.extractPatternsFromCSV(csvRows);
 //            List<SupportResistanceLevel> srLevels = extractSupportResistance(csvRows);
             List<SupportResistanceLevel> srLevels = null;
-            List<String> volumeSpikes = detectVolumeSpikes(csvRows);
+            List<String> volumeSpikes = Utility.detectVolumeSpikes(csvRows);
 
             String currPrice = "1248.70";
             String startDate = "31st December 2024";
             String endDate = "03rd April 2025";
 
-            double[] visibleRange = getVisiblePriceRangeFromCSV(csvRows);
+            double[] visibleRange = Utility.getVisiblePriceRangeFromCSV(csvRows);
 
             // Mark visibility of patterns after analyzing image (pseudo)
             double visibleMinPrice = visibleRange[0];
@@ -551,8 +1101,8 @@ public class ImageController {
 
             String chainOfThoughtPrompt = buildChainOfThoughtPrompt(patterns, srLevels, volumeSpikes, currPrice, startDate, endDate);
 
-            List<TechnicalPattern> extractedPattern = extractPatternsFromCSV(csvRows);
-            String csvSummaryText = buildCsvSummaryText(extractedPattern);
+            List<TechnicalPattern> extractedPattern = Utility.extractPatternsFromCSV(csvRows);
+            String csvSummaryText = Utility.buildCsvSummaryText(extractedPattern);
 
             String fullPrompt = chainOfThoughtPrompt + "\n\nCSV Summary:\n" + csvSummaryText + "\n\nAnalyze the attached candlestick chart image and the above CSV summary data for a complete technical analysis.";
 
@@ -567,7 +1117,7 @@ public class ImageController {
 
             // Store analysis and embeddings (for memory retrieval)
 //            storeAnalysisInVectorDB(fullAnalysis);
-            simpleVectorStore(embeddingModel, fullAnalysis);
+            Utility.simpleVectorStore(embeddingModel, fullAnalysis);
 
             return ResponseEntity.ok(fullAnalysis);
 
@@ -631,153 +1181,145 @@ public class ImageController {
         }
     }
 
-    public SimpleVectorStore simpleVectorStore(EmbeddingModel embeddingModel, String fullText) {
-        SimpleVectorStore simpleVectorStore = SimpleVectorStore.builder(embeddingModel).build();
-        TextReader textReader = new TextReader(fullText);
-        List<Document> documents = List.of(new Document(fullText));
-        TokenTextSplitter tokenTextSplitter = new TokenTextSplitter();
-        List<Document> splitDocuments = tokenTextSplitter.apply(documents);
+//    public SimpleVectorStore simpleVectorStore(EmbeddingModel embeddingModel, String fullText) {
+//        SimpleVectorStore simpleVectorStore = SimpleVectorStore.builder(embeddingModel).build();
+//        TextReader textReader = new TextReader(fullText);
+//        List<Document> documents = List.of(new Document(fullText));
+//        TokenTextSplitter tokenTextSplitter = new TokenTextSplitter();
+//        List<Document> splitDocuments = tokenTextSplitter.apply(documents);
+//
+//        simpleVectorStore.add(splitDocuments);
+//
+//        LOGGER.info("stroed simple vector is: " + simpleVectorStore.toString());
+//
+//        return simpleVectorStore;
+//    }
 
-        simpleVectorStore.add(splitDocuments);
+//    public List<TechnicalPattern> extractPatternsFromCSV(List<String[]> csvRows) {
+//        List<TechnicalPattern> patterns = new ArrayList<>();
+//        SimpleDateFormat inputDateFormat = new SimpleDateFormat("dd-MMM-yy", Locale.ENGLISH);
+//        SimpleDateFormat outputDateFormat = new SimpleDateFormat("yyyy-MM-dd");
+//
+//        for (int i = 1; i < csvRows.size(); i++) {  // Start at 1 to compare with previous row
+//            String[] today = csvRows.get(i);
+//            String[] yesterday = csvRows.get(i - 1);
+//
+//            try {
+//                // Make sure arrays have expected length to avoid IndexOutOfBoundsException
+//                if (today.length < 7 || yesterday.length < 7) {
+//                    System.err.println("Skipping row " + i + " due to insufficient columns");
+//                    continue;
+//                }
+//
+//                double todayOpen = Utility.parseDouble(today[1]);
+//                double todayClose = Utility.parseDouble(today[6]);
+//                double yesterdayOpen = Utility.parseDouble(yesterday[1]);
+//                double yesterdayClose = Utility.parseDouble(yesterday[6]);
+//
+//                if (todayOpen < todayClose &&  // today bullish
+//                        yesterdayOpen > yesterdayClose && // yesterday bearish
+//                        todayOpen < yesterdayClose &&
+//                        todayClose > yesterdayOpen) {
+//
+//                    TechnicalPattern tp = new TechnicalPattern();
+//                    tp.patternName = "Bullish Engulfing";
+//
+//                    Date parsedDate = inputDateFormat.parse(today[0].trim());
+//                    tp.date = outputDateFormat.format(parsedDate);
+//
+//                    tp.priceLevel = todayClose;
+//                    tp.visibleInChart = false;
+//                    tp.notes = "Strong bullish reversal candidate";
+//
+//                    patterns.add(tp);
+//                }
+//            } catch (ParseException | NumberFormatException e) {
+//                System.err.println("Skipping row " + i + " due to parsing error: " + e.getMessage());
+//            }
+//        }
+//
+//        return patterns;
+//    }
 
-        LOGGER.info("stroed simple vector is: " + simpleVectorStore.toString());
+//    private double parseDouble(String value) throws NumberFormatException {
+//        // Remove quotes and commas from the numeric string before parsing
+//        String cleaned = value.replace("\"", "").replace(",", "");
+//        return Double.parseDouble(cleaned);
+//    }
 
-        return simpleVectorStore;
-    }
+//    public List<SupportResistanceLevel> extractSupportResistance(List<String[]> csvRows) {
+//        double tolerance = 2.0;  // Price band to cluster levels
+//        List<SupportResistanceLevel> levels = new ArrayList<>();
+//
+//        for (int i = 2; i < csvRows.size(); i++) {  // skip header
+//            String[] row = csvRows.get(i);
+//            try {
+//                double high = Utility.parseDouble(row[2]);
+//                double low = Utility.parseDouble(row[3]);
+//                String date = row[0];
+//
+//                // Cluster resistance (high)
+//                SupportResistanceLevel resistanceLevel = findLevel(levels, high, tolerance, "Resistance");
+//                if (resistanceLevel == null) {
+//                    resistanceLevel = new SupportResistanceLevel();
+//                    resistanceLevel.priceLevel = high;
+//                    resistanceLevel.levelType = "Resistance";
+//                    levels.add(resistanceLevel);
+//                }
+//                resistanceLevel.touchedDates.add(date);
+//
+//                // Cluster support (low)
+//                SupportResistanceLevel supportLevel = findLevel(levels, low, tolerance, "Support");
+//                if (supportLevel == null) {
+//                    supportLevel = new SupportResistanceLevel();
+//                    supportLevel.priceLevel = low;
+//                    supportLevel.levelType = "Support";
+//                    levels.add(supportLevel);
+//                }
+//                supportLevel.touchedDates.add(date);
+//
+//            } catch (NumberFormatException e) {
+//                System.err.println("Skipping row " + i + " due to number parse error: " + e.getMessage());
+//            }
+//        }
+//
+//        return levels;
+//    }
 
-    public List<String[]> loadCSV(String filePath) throws IOException {
-        try (CSVReader reader = new CSVReader(new FileReader(filePath))) {
-            return reader.readAll();
-        } catch (CsvException e) {
-            throw new RuntimeException(e);
-        }
-    }
+//    private SupportResistanceLevel findLevel(List<SupportResistanceLevel> levels, double price, double tolerance, String levelType) {
+//        for (SupportResistanceLevel lvl : levels) {
+//            if (lvl.levelType.equals(levelType) && Math.abs(lvl.priceLevel - price) <= tolerance) {
+//                // Optionally: update priceLevel to average or keep original
+//                return lvl;
+//            }
+//        }
+//        return null;
+//    }
 
-    public List<TechnicalPattern> extractPatternsFromCSV(List<String[]> csvRows) {
-        List<TechnicalPattern> patterns = new ArrayList<>();
-        SimpleDateFormat inputDateFormat = new SimpleDateFormat("dd-MMM-yy", Locale.ENGLISH);
-        SimpleDateFormat outputDateFormat = new SimpleDateFormat("yyyy-MM-dd");
-
-        for (int i = 1; i < csvRows.size(); i++) {  // Start at 1 to compare with previous row
-            String[] today = csvRows.get(i);
-            String[] yesterday = csvRows.get(i - 1);
-
-            try {
-                // Make sure arrays have expected length to avoid IndexOutOfBoundsException
-                if (today.length < 7 || yesterday.length < 7) {
-                    System.err.println("Skipping row " + i + " due to insufficient columns");
-                    continue;
-                }
-
-                double todayOpen = parseDouble(today[1]);
-                double todayClose = parseDouble(today[6]);
-                double yesterdayOpen = parseDouble(yesterday[1]);
-                double yesterdayClose = parseDouble(yesterday[6]);
-
-                if (todayOpen < todayClose &&  // today bullish
-                        yesterdayOpen > yesterdayClose && // yesterday bearish
-                        todayOpen < yesterdayClose &&
-                        todayClose > yesterdayOpen) {
-
-                    TechnicalPattern tp = new TechnicalPattern();
-                    tp.patternName = "Bullish Engulfing";
-
-                    Date parsedDate = inputDateFormat.parse(today[0].trim());
-                    tp.date = outputDateFormat.format(parsedDate);
-
-                    tp.priceLevel = todayClose;
-                    tp.visibleInChart = false;
-                    tp.notes = "Strong bullish reversal candidate";
-
-                    patterns.add(tp);
-                }
-            } catch (ParseException | NumberFormatException e) {
-                System.err.println("Skipping row " + i + " due to parsing error: " + e.getMessage());
-            }
-        }
-
-        return patterns;
-    }
-
-    private double parseDouble(String value) throws NumberFormatException {
-        // Remove quotes and commas from the numeric string before parsing
-        String cleaned = value.replace("\"", "").replace(",", "");
-        return Double.parseDouble(cleaned);
-    }
-
-    public List<SupportResistanceLevel> extractSupportResistance(List<String[]> csvRows) {
-        double tolerance = 2.0;  // Price band to cluster levels
-        List<SupportResistanceLevel> levels = new ArrayList<>();
-
-        for (int i = 2; i < csvRows.size(); i++) {  // skip header
-            String[] row = csvRows.get(i);
-            try {
-                double high = parseDouble(row[2]);
-                double low = parseDouble(row[3]);
-                String date = row[0];
-
-                // Cluster resistance (high)
-                SupportResistanceLevel resistanceLevel = findLevel(levels, high, tolerance, "Resistance");
-                if (resistanceLevel == null) {
-                    resistanceLevel = new SupportResistanceLevel();
-                    resistanceLevel.priceLevel = high;
-                    resistanceLevel.levelType = "Resistance";
-                    levels.add(resistanceLevel);
-                }
-                resistanceLevel.touchedDates.add(date);
-
-                // Cluster support (low)
-                SupportResistanceLevel supportLevel = findLevel(levels, low, tolerance, "Support");
-                if (supportLevel == null) {
-                    supportLevel = new SupportResistanceLevel();
-                    supportLevel.priceLevel = low;
-                    supportLevel.levelType = "Support";
-                    levels.add(supportLevel);
-                }
-                supportLevel.touchedDates.add(date);
-
-            } catch (NumberFormatException e) {
-                System.err.println("Skipping row " + i + " due to number parse error: " + e.getMessage());
-            }
-        }
-
-        return levels;
-    }
-
-    private SupportResistanceLevel findLevel(List<SupportResistanceLevel> levels, double price, double tolerance, String levelType) {
-        for (SupportResistanceLevel lvl : levels) {
-            if (lvl.levelType.equals(levelType) && Math.abs(lvl.priceLevel - price) <= tolerance) {
-                // Optionally: update priceLevel to average or keep original
-                return lvl;
-            }
-        }
-        return null;
-    }
-
-    public List<String> detectVolumeSpikes(List<String[]> csvRows) {
-        List<String> spikeDates = new ArrayList<>();
-
-        for (int i = 6; i < csvRows.size(); i++) {  // Start from 6 to ensure at least 5 previous rows
-            try {
-                double currentVol = parseDouble(csvRows.get(i)[8]);
-                double avgPrevVol = 0;
-
-                for (int j = i - 5; j < i; j++) {
-                    avgPrevVol += parseDouble(csvRows.get(j)[8]);
-                }
-                avgPrevVol /= 5;
-
-                if (currentVol > 1.5 * avgPrevVol) {
-                    spikeDates.add(csvRows.get(i)[0]);
-                }
-
-            } catch (NumberFormatException e) {
-                System.err.println("Skipping row " + i + " due to volume parse error: " + e.getMessage());
-            }
-        }
-
-        return spikeDates;
-    }
+//    public List<String> detectVolumeSpikes(List<String[]> csvRows) {
+//        List<String> spikeDates = new ArrayList<>();
+//
+//        for (int i = 6; i < csvRows.size(); i++) {  // Start from 6 to ensure at least 5 previous rows
+//            try {
+//                double currentVol = Utility.parseDouble(csvRows.get(i)[8]);
+//                double avgPrevVol = 0;
+//
+//                for (int j = i - 5; j < i; j++) {
+//                    avgPrevVol += Utility.parseDouble(csvRows.get(j)[8]);
+//                }
+//                avgPrevVol /= 5;
+//
+//                if (currentVol > 1.5 * avgPrevVol) {
+//                    spikeDates.add(csvRows.get(i)[0]);
+//                }
+//
+//            } catch (NumberFormatException e) {
+//                System.err.println("Skipping row " + i + " due to volume parse error: " + e.getMessage());
+//            }
+//        }
+//
+//        return spikeDates;
+//    }
 
     public String buildChainOfThoughtPrompt(List<TechnicalPattern> patterns, List<SupportResistanceLevel> levels, List<String> volumeSpikes, String currPrice, String startDate, String endDate) {
         StringBuilder sb = new StringBuilder();
@@ -812,56 +1354,56 @@ public class ImageController {
         return sb.toString();
     }
 
-    public void markPatternsVisibleInChart(List<TechnicalPattern> patterns, double visibleMinPrice, double visibleMaxPrice) {
-        for (TechnicalPattern tp : patterns) {
-            if (tp.priceLevel >= visibleMinPrice && tp.priceLevel <= visibleMaxPrice) {
-                tp.visibleInChart = true;
-            } else {
-                tp.visibleInChart = false;
-            }
-        }
-    }
+//    public void markPatternsVisibleInChart(List<TechnicalPattern> patterns, double visibleMinPrice, double visibleMaxPrice) {
+//        for (TechnicalPattern tp : patterns) {
+//            if (tp.priceLevel >= visibleMinPrice && tp.priceLevel <= visibleMaxPrice) {
+//                tp.visibleInChart = true;
+//            } else {
+//                tp.visibleInChart = false;
+//            }
+//        }
+//    }
 
-    public String buildCsvSummaryText(List<TechnicalPattern> patterns) {
-        if (patterns == null || patterns.isEmpty()) {
-            return "No technical patterns detected.";
-        }
+//    public String buildCsvSummaryText(List<TechnicalPattern> patterns) {
+//        if (patterns == null || patterns.isEmpty()) {
+//            return "No technical patterns detected.";
+//        }
+//
+//        StringBuilder sb = new StringBuilder();
+//        sb.append("Detected Technical Patterns Summary:\n");
+//        sb.append("------------------------------------------------\n");
+//
+//        for (TechnicalPattern tp : patterns) {
+//            sb.append("Pattern: ").append(tp.patternName).append("\n");
+//            sb.append("Date: ").append(tp.date).append("\n");
+//            sb.append("Price Level: ").append(String.format("%.2f", tp.priceLevel)).append("\n");
+//            sb.append("Visible in Chart: ").append(tp.visibleInChart ? "Yes" : "No").append("\n");
+//            if (tp.notes != null && !tp.notes.isEmpty()) {
+//                sb.append("Notes: ").append(tp.notes).append("\n");
+//            }
+//            sb.append("------------------------------------------------\n");
+//        }
+//
+//        return sb.toString();
+//    }
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("Detected Technical Patterns Summary:\n");
-        sb.append("------------------------------------------------\n");
-
-        for (TechnicalPattern tp : patterns) {
-            sb.append("Pattern: ").append(tp.patternName).append("\n");
-            sb.append("Date: ").append(tp.date).append("\n");
-            sb.append("Price Level: ").append(String.format("%.2f", tp.priceLevel)).append("\n");
-            sb.append("Visible in Chart: ").append(tp.visibleInChart ? "Yes" : "No").append("\n");
-            if (tp.notes != null && !tp.notes.isEmpty()) {
-                sb.append("Notes: ").append(tp.notes).append("\n");
-            }
-            sb.append("------------------------------------------------\n");
-        }
-
-        return sb.toString();
-    }
-
-    public double[] getVisiblePriceRangeFromCSV(List<String[]> csvRows) {
-        double minPrice = Double.MAX_VALUE;
-        double maxPrice = Double.MIN_VALUE;
-
-        // Assuming your LOW price is in column index 3 and HIGH price is in column index 2
-        // (based on your CSV format: Date, OPEN, HIGH, LOW, PREV. CLOSE, ltp, close, vwap, VOLUME)
-        for (int i = 1; i < csvRows.size(); i++) { // skip header at 0
-            String[] row = csvRows.get(i);
-
-            // Remove commas and parse as double
-            double low = Double.parseDouble(row[3].replace(",", ""));
-            double high = Double.parseDouble(row[2].replace(",", ""));
-
-            if (low < minPrice) minPrice = low;
-            if (high > maxPrice) maxPrice = high;
-        }
-
-        return new double[]{minPrice, maxPrice};
-    }
+//    public double[] getVisiblePriceRangeFromCSV(List<String[]> csvRows) {
+//        double minPrice = Double.MAX_VALUE;
+//        double maxPrice = Double.MIN_VALUE;
+//
+//        // Assuming your LOW price is in column index 3 and HIGH price is in column index 2
+//        // (based on your CSV format: Date, OPEN, HIGH, LOW, PREV. CLOSE, ltp, close, vwap, VOLUME)
+//        for (int i = 1; i < csvRows.size(); i++) { // skip header at 0
+//            String[] row = csvRows.get(i);
+//
+//            // Remove commas and parse as double
+//            double low = Double.parseDouble(row[3].replace(",", ""));
+//            double high = Double.parseDouble(row[2].replace(",", ""));
+//
+//            if (low < minPrice) minPrice = low;
+//            if (high > maxPrice) maxPrice = high;
+//        }
+//
+//        return new double[]{minPrice, maxPrice};
+//    }
 }
