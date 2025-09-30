@@ -1,9 +1,6 @@
 package com.example.springAIDemo.Controller;
 
-import com.example.springAIDemo.model.FilePathRequest;
-import com.example.springAIDemo.model.SupportResistanceLevel;
-import com.example.springAIDemo.model.TechnicalPattern;
-import com.example.springAIDemo.model.VectorDB;
+import com.example.springAIDemo.model.*;
 import com.example.springAIDemo.new_redis_rag.EmbeddingServiceNew;
 import com.example.springAIDemo.utility.Utility;
 import com.opencsv.CSVReader;
@@ -517,13 +514,16 @@ public class ImageController {
 
         // Extract data for prompt
         String recentDailyJson = preComputedData.getJSONArray("recent_daily").toString();
-        String monthlySummaryJson = preComputedData.getJSONArray("monthly_summary").toString();
-        String signalsJson = preComputedData.getJSONArray("signals").toString();
+        String monthlySummaryJson = preComputedData.getJSONArray("monthly_average_of_all_OHLCV").toString();
+//        String signalsJson = preComputedData.getJSONArray("signals").toString();
 
         // Placeholder user profile (replace with real user data if available)
         String userRiskTolerance = "medium";
         String userInvestmentHorizon = "6 months";
         String userPortfolioNotes = "No previous portfolio data";
+        LocalDate today = LocalDate.now();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy");
+        String formattedDate = today.format(formatter);
 
         // System instruction
 //        String systemInstruction = """
@@ -553,6 +553,58 @@ public class ImageController {
 //            5. Keep your explanation concise, analytical, and professional.
 //            """;
 
+//        String systemInstruction = String.format("""
+//            You are a highly skilled technical stock market analyst.
+//            Analyze the provided OHLCV data of %s company and generate detailed, date-specific, actionable insights.
+//            Focus only on the data provided.
+//            Include:
+//            - Trend analysis (short/medium/long term)
+//            - Support/resistance levels (date-specific)
+//            - Candlestick patterns
+//            - Volume analysis
+//            - Technical indicator signals
+//            - Breakouts/gaps
+//            - Final outlook (bullish/bearish/neutral)
+//        """, request.getCompanyName());
+//
+//        // User prompt
+//        String userPrompt = String.format("""
+//            Today's date is: %s
+//
+//            User Profile:
+//            - Risk Tolerance: %s
+//            - Investment Horizon: %s
+//            - Previous Portfolio Notes: %s
+//
+//            Stock Data:
+//            - Recent Daily (last 60 OHLCV data): %s
+//            - Monthly Summary: %s
+//            - Signals: %s
+//
+//            Your task:
+//            1. Short-term (days to weeks) trend analysis
+//            2. Medium-term (weeks to months) trend analysis
+//            3. Identify key support and resistance levels (based on given recent_daily data refer the recent_daily_columns to understand find support and resistences also all the amount is in rupees)
+//            4. Given the 60 days data in recent_daily data, detect moving average crossovers (10, 20, 50-day). Columns names are present in recent_daily_columnss
+//            5. Analyse and find out the candlestick patterns with exact dates based on the data given 60 days data in recent_daily. Columns names are present in recent_daily_columns
+//            6. Volume spikes or divergence patterns
+//            7. Technical indicator insights (RSI, MACD, Bollinger Bands, overbought/oversold)
+//            8. Highlight any breakout or gap events
+//            9. Provide a final trading outlook (buy/sell/hold) and reasoning
+//            10. If no signals are present, explicitly note that
+//
+//            Only use the data provided above. Be analytical, concise, and reference exact dates.
+//            While doing analysis keep in mind today's date: %s and do the analysis based on that as well.
+//            """,
+//                formattedDate,
+//                userRiskTolerance,
+//                userInvestmentHorizon,
+//                userPortfolioNotes,
+//                recentDailyJson,
+//                monthlySummaryJson,
+//                signalsJson,
+//                formattedDate
+//        );
         String systemInstruction = String.format("""
             You are a highly skilled technical stock market analyst.
             Analyze the provided OHLCV data of %s company and generate detailed, date-specific, actionable insights.
@@ -562,44 +614,48 @@ public class ImageController {
             - Support/resistance levels (date-specific)
             - Candlestick patterns
             - Volume analysis
-            - Technical indicator signals
             - Breakouts/gaps
             - Final outlook (bullish/bearish/neutral)
         """, request.getCompanyName());
 
         // User prompt
         String userPrompt = String.format("""
+            Today's date is: %s
+            
             User Profile:
             - Risk Tolerance: %s
             - Investment Horizon: %s
             - Previous Portfolio Notes: %s
 
             Stock Data:
-            - Recent Daily (last 30–60 days): %s
-            - Monthly Summary: %s
-            - Signals: %s
+            - Recent Daily (last 60 OHLCV data): %s
+            - monthly_average_of_all_OHLCV: %s
 
             Your task:
             1. Short-term (days to weeks) trend analysis
             2. Medium-term (weeks to months) trend analysis
-            3. Identify key support and resistance levels (with dates with year and prices)
-            4. Given the 60 days data in recent_daily data, detect moving average crossovers (10, 20, 50-day). Columns names are present in recent_daily_columns
+            3. Identify key support and resistance levels (based on given recent_daily data refer the recent_daily_columns to understand find support and resistences also all the amount is in rupees)
+            4. Given the 60 days data in recent_daily data, detect moving average crossovers (10, 20, 50-day). Columns names are present in recent_daily_columnss
             5. Analyse and find out the candlestick patterns with exact dates based on the data given 60 days data in recent_daily. Columns names are present in recent_daily_columns
             6. Volume spikes or divergence patterns
-            7. Technical indicator insights (RSI, MACD, Bollinger Bands, overbought/oversold)
             8. Highlight any breakout or gap events
             9. Provide a final trading outlook (buy/sell/hold) and reasoning
             10. If no signals are present, explicitly note that
 
             Only use the data provided above. Be analytical, concise, and reference exact dates.
+            While doing analysis keep in mind today's date: %s and do the analysis based on that as well.
             """,
+                formattedDate,
                 userRiskTolerance,
                 userInvestmentHorizon,
                 userPortfolioNotes,
                 recentDailyJson,
                 monthlySummaryJson,
-                signalsJson
+                formattedDate
         );
+
+        LOGGER.info("systemInstruction : " + systemInstruction);
+        LOGGER.info("userPrompt: " + userPrompt);
 
         // Call your LLM
         try {
@@ -651,15 +707,26 @@ public class ImageController {
             // Maps for monthly aggregation
             Map<String, List<String[]>> monthlyMap = new LinkedHashMap<>();
 
-            // Process rows in reverse to easily get last 60 days
             int totalRows = rows.size();
-//            int startIndex = Math.max(0, totalRows - 60); // get the last 60 rows
+            List<Double> macdSeries = new ArrayList<>();
 
-//            for (int i = startIndex; i < totalRows; i++) {
-//            for (int i = 0; i < totalRows; i++) {
-            for (int i = totalRows - 1; i >= 0; i--) {
+//            for (int i = totalRows - 1; i >= 0; i--)
+            for (int i = 0; i < totalRows; i++)
+            {
                 String[] row = rows.get(i);
-//                String date = row[0].trim();
+
+                double high = Double.parseDouble(row[3].replace(",", ""));
+                double low = Double.parseDouble(row[4].replace(",", ""));
+                double close = Double.parseDouble(row[7].replace(",", ""));
+
+                closes.add(close);
+                highs.add(high);
+                lows.add(low);
+            }
+
+//            for (int i = totalRows - 1; i >= 0; i--) {
+            for (int i = 0; i < totalRows; i++){
+                String[] row = rows.get(i);
 
                 LocalDate parsedDate = LocalDate.parse(row[0].trim(), Utility.INPUT_DATE_FORMAT);
                 String isoDate = parsedDate.format(Utility.ISO_DATE_FORMAT);
@@ -669,6 +736,276 @@ public class ImageController {
                 double low = Double.parseDouble(row[4].replace(",", ""));
                 double close = Double.parseDouble(row[7].replace(",", ""));
                 long volume = Long.parseLong(row[11].replace(",", ""));
+
+                double change = close - open;
+                double changePct = (open != 0) ? (change / open) * 100.0 : 0.0;
+
+                Double ma7 = null;
+                if(i < totalRows-8)
+                    ma7 = movingAverage(closes.subList(i, i+7), 7);
+
+                Double ma10 = null;
+                if(i < totalRows-11)
+                    ma10 = movingAverage(closes.subList(i, i+10), 10);
+
+                Double ma20 = null;
+                if(i < totalRows-21)
+                    ma20 = movingAverage(closes.subList(i, i+20), 20);
+
+                Double ma30 = null;
+
+                if(i < totalRows-31)
+                    ma30 = movingAverage(closes.subList(i, i+30), 30);
+
+                Double ma50 = null;
+                if(i < totalRows-51)
+                    ma50 = movingAverage(closes.subList(i, i+50), 50);
+
+                Double rsi14 = null;
+                if(i < totalRows-16)
+                    rsi14 = computeRSI(closes.subList(i, i+15), 14);
+
+                // MACD (12,26,9)
+//                Double macd = computeEMA(closes, 12) - computeEMA(closes, 26);
+//                Double ema12 = computeEMA(closes, 12);
+//                Double ema26 = computeEMA(closes, 26);
+//                Double macd = null;
+//                if (ema12 != null && ema26 != null) {
+//                    macd = ema12 - ema26;
+//                }
+//                Double signal = computeEMA(Collections.singletonList(macd), 9); // placeholder, better: maintain EMA history
+//                Double histogram = (signal != null) ? macd - signal : null;
+
+                Double ema12 = null;
+                Double ema26 = null;
+
+                if(i < totalRows-13)
+                    ema12 = computeEMA(closes.subList(i, i+12), 12);
+
+                if(i < totalRows-27)
+                    ema26 = computeEMA(closes.subList(i, i+26), 26);
+
+                Double macd = null;
+                Double signal = null;
+                Double histogram = null;
+
+                if (ema12 != null && ema26 != null) {
+                    macd = ema12 - ema26;
+                    macdSeries.add(macd);
+
+                    if (macdSeries.size() >= 9) {
+                        signal = computeEMA(macdSeries, 9);
+                        histogram = macd - signal;
+                    }
+                }
+
+                // Bollinger Bands (20-period, 2 std dev)
+                Double[] boll = null;
+                Double bollUpper = null;
+                Double bollLower = null;
+                if(i < totalRows-21) {
+                    boll = computeBollinger(closes.subList(i, i+20), 20, 2.0);
+                    bollUpper= boll[0];
+                    bollLower = boll[1];
+                }
+
+                // Build recent daily row
+//                if (recentDaily.length() < 60) { // last 60 days
+//                if (i <= totalRows - 60) {
+                if (i < 60) {
+                    JSONArray record = new JSONArray();
+                    record.put(isoDate);
+                    record.put(round(open));
+                    record.put(round(high));
+                    record.put(round(low));
+                    record.put(round(close));
+                    record.put(volume);
+                    record.put(round(change));
+                    record.put(round(changePct));
+                    record.put(ma7 != null ? round(ma7) : JSONObject.NULL);
+                    record.put(ma10 != null ? round(ma10) : JSONObject.NULL);
+                    record.put(ma20 != null ? round(ma20) : JSONObject.NULL);
+                    record.put(ma30 != null ? round(ma30) : JSONObject.NULL);
+                    record.put(ma50 != null ? round(ma50) : JSONObject.NULL);
+                    record.put(rsi14 != null ? round(rsi14) : JSONObject.NULL);
+                    record.put(macd != null ? round(macd) : JSONObject.NULL);
+                    record.put(signal != null ? round(signal) : JSONObject.NULL);
+                    record.put(histogram != null ? round(histogram) : JSONObject.NULL);
+                    record.put(bollUpper != null ? round(bollUpper) : JSONObject.NULL);
+                    record.put(bollLower != null ? round(bollLower) : JSONObject.NULL);
+                    recentDaily.put(record);
+                }
+
+                // Collect monthly data for aggregation
+                String monthKey = parsedDate.format(Utility.ISO_MONTH_FORMAT); // e.g., "Apr-25"
+                monthlyMap.computeIfAbsent(monthKey, k -> new ArrayList<>()).add(row);
+
+                if(i < 8)
+                {
+                    if (macd != null && signal != null) {
+                        if (Math.abs(macd-signal) >= 1 && macd > signal) {
+                            JSONObject sig = new JSONObject();
+                            sig.put("date", isoDate);
+                            sig.put("type", "MACD");
+                            sig.put("event", "Bullish crossover");
+                            signals.put(sig);
+                        } else if (Math.abs(macd-signal) >= 1 && macd < signal) {
+                            JSONObject sig = new JSONObject();
+                            sig.put("date", isoDate);
+                            sig.put("type", "MACD");
+                            sig.put("event", "Bearish crossover");
+                            signals.put(sig);
+                        }
+                    }
+                }
+
+                if(i < 8)
+                {
+                    if(bollUpper < close)
+                    {
+                        JSONObject sig = new JSONObject();
+                        sig.put("date", isoDate);
+                        sig.put("type", "Bollingerband crossover");
+                        sig.put("event", "upper crossover");
+                        signals.put(sig);
+                    }
+                    else if(bollLower > close)
+                    {
+                        JSONObject sig = new JSONObject();
+                        sig.put("date", isoDate);
+                        sig.put("type", "Bollingerband crossover");
+                        sig.put("event", "lower crossover");
+                        signals.put(sig);
+                    }
+                }
+
+                // RSI, etc. can be computed similarly
+            }
+
+            if (signals.length() == 0) {
+                JSONObject noSignal = new JSONObject();
+                noSignal.put("note", "No MACD crossovers detected in the processed period.");
+                signals.put(noSignal);
+            }
+
+            // Compute monthly summary
+            // Monthly summary with realistic support/resistance
+            for (Map.Entry<String, List<String[]>> entry : monthlyMap.entrySet()) {
+                String month = entry.getKey();
+                List<String[]> monthRows = entry.getValue();
+
+                double open = Double.parseDouble(monthRows.get(0)[2].replace(",", ""));
+                double close = Double.parseDouble(monthRows.get(monthRows.size() - 1)[7].replace(",", ""));
+                double high = monthRows.stream().mapToDouble(r -> Double.parseDouble(r[3].replace(",", ""))).max().orElse(0);
+                double low = monthRows.stream().mapToDouble(r -> Double.parseDouble(r[4].replace(",", ""))).min().orElse(0);
+                long volume = monthRows.stream().mapToLong(r -> Long.parseLong(r[11].replace(",", ""))).sum();
+
+                JSONArray monthlyRow = new JSONArray();
+                monthlyRow.put(month);
+                monthlyRow.put(round(open));
+                monthlyRow.put(round(high));
+                monthlyRow.put(round(low));
+                monthlyRow.put(round(close));
+                monthlyRow.put(volume);
+                monthlySummary.put(monthlyRow);
+            }
+
+            // Build investment_view (very basic example)
+            JSONObject investmentView = new JSONObject();
+            investmentView.put("short_term", computeInvestmentView(recentDaily));
+            investmentView.put("medium_term", computeInvestmentView(monthlySummary));
+            investmentView.put("long_term", computeInvestmentView(monthlySummary)); // could be 1-year aggregate
+
+            // Meta information
+//            JSONObject meta = new JSONObject();
+//            meta.put("symbol", "XYZ");
+//            meta.put("currency", "INR");
+//            meta.put("data_range", rows.size() + " days");
+
+            JSONObject result = new JSONObject();
+            result.put("recent_daily_columns", recentDailyColumns);
+            result.put("recent_daily", recentDaily);
+            result.put("monthly_average_of_all_OHLCV_columns", monthlySummaryColumns);
+            result.put("monthly_average_of_all_OHLCV", monthlySummary);
+            result.put("signals_columns", signalsColumns);
+            result.put("signals", signals);
+            result.put("investment_view_columns", investmentViewColumns);
+            result.put("investment_view", investmentView);
+//            result.put("meta", meta);
+
+            return result;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            LOGGER.info("Error processing CSV: " + e.getMessage());
+
+            return new JSONObject();
+        }
+    }
+
+    private JSONObject computeInvestmentView_v1(String path) {
+
+        try (CSVReader reader = new CSVReader(new FileReader(path))) {
+            List<String[]> rows = reader.readAll();
+            rows.remove(0); // skip header
+
+            List<Double> closes = new ArrayList<>();
+            List<Double> highs = new ArrayList<>();
+            List<Double> lows = new ArrayList<>();
+            JSONArray recentDaily = new JSONArray();
+            JSONArray monthlySummary = new JSONArray();
+            JSONArray signals = new JSONArray();
+
+            JSONArray recentDailyColumns = new JSONArray(Arrays.asList(
+                    "Date","Open","High","Low","Close","Volume",
+                    "Change","ChangePct",
+                    "MA7","MA10","MA20","MA30","MA50",
+                    "RSI14",
+                    "MACD","MACDSignal","MACDHistogram",
+                    "BollUpper","BollLower"
+            ));
+            JSONArray monthlySummaryColumns = new JSONArray(Arrays.asList(
+                    "Month","Open","High","Low","Close","Volume"
+            ));
+            JSONArray signalsColumns = new JSONArray(Arrays.asList(
+                    "Date","Type","Event"
+            ));
+            JSONArray investmentViewColumns = new JSONArray(Arrays.asList(
+                    "Term","Trend","Risk","Signal","RSI"
+            ));
+
+            // Maps for monthly aggregation
+            Map<String, List<String[]>> monthlyMap = new LinkedHashMap<>();
+
+            List<DailyOHLCRecords> dailyOHLCRecords = new ArrayList<>();
+
+            // Process rows in reverse to easily get last 60 days
+            int totalRows = rows.size();
+//            int startIndex = Math.max(0, totalRows - 60); // get the last 60 rows
+
+//            for (int i = startIndex; i < totalRows; i++) {
+//            for (int i = 0; i < totalRows; i++) {
+            for (int i = totalRows - 1; i >= 0; i--) {
+                String[] row = rows.get(i);
+
+                DailyOHLCRecords ohlcRecords = new DailyOHLCRecords();
+
+                LocalDate parsedDate = LocalDate.parse(row[0].trim(), Utility.INPUT_DATE_FORMAT);
+                String isoDate = parsedDate.format(Utility.ISO_DATE_FORMAT);
+
+                ohlcRecords.setDate(isoDate);
+
+                double open = Double.parseDouble(row[2].replace(",", ""));
+                double high = Double.parseDouble(row[3].replace(",", ""));
+                double low = Double.parseDouble(row[4].replace(",", ""));
+                double close = Double.parseDouble(row[7].replace(",", ""));
+                long volume = Long.parseLong(row[11].replace(",", ""));
+
+                ohlcRecords.setOpen(open);
+                ohlcRecords.setHigh(high);
+                ohlcRecords.setLow(low);
+                ohlcRecords.setClose(close);
+                ohlcRecords.setVolume(volume);
 
                 closes.add(close);
                 highs.add(high);
@@ -864,37 +1201,129 @@ public class ImageController {
         return Math.round(value * 100.0) / 100.0;
     }
 
-    // Placeholder functions for EMA/MACD/RSI
-    private Double ma12(List<Double> closes) { return closes.size() >= 12 ? closes.subList(closes.size()-12, closes.size()).stream().mapToDouble(Double::doubleValue).average().orElse(0) : null; }
-    private Double ma26(List<Double> closes) { return closes.size() >= 26 ? closes.subList(closes.size()-26, closes.size()).stream().mapToDouble(Double::doubleValue).average().orElse(0) : null; }
-    private double ma9(double value) { return value; } // placeholder
+//    private Double movingAverage(List<Double> data, int period) {
+//        if (data.size() < period) return null;
+//        return data.subList(data.size() - period, data.size()).stream()
+//                .mapToDouble(Double::doubleValue).average().orElse(0.0);
+//    }
 
-    private Double movingAverage(List<Double> data, int period) {
-        if (data.size() < period) return null;
-        return data.subList(data.size() - period, data.size()).stream()
-                .mapToDouble(Double::doubleValue).average().orElse(0.0);
+    public static Double movingAverage(List<Double> closes, int period) {
+        if (closes == null || closes.size() < period) {
+            return null;  // Not enough data points
+        }
+
+        // Sum the last 'period' closes
+        double sum = 0.0;
+        int startIndex = closes.size() - period;
+        for (int i = startIndex; i < closes.size(); i++) {
+            sum += closes.get(i);
+        }
+
+        return sum / period;
     }
 
-    private Double computeEMA(List<Double> data, int period) {
-        if (data.size() < period) return null;
-        double k = 2.0 / (period + 1);
-        double ema = data.get(0);
-        for (int i = 1; i < data.size(); i++) {
-            ema = (data.get(i) * k) + (ema * (1 - k));
+//    private Double computeEMA(List<Double> data, int period) {
+//        if (data.size() < period) return null;
+//        double k = 2.0 / (period + 1);
+//        double ema = data.get(0);
+//        for (int i = 1; i < data.size(); i++) {
+//            ema = (data.get(i) * k) + (ema * (1 - k));
+//        }
+//        return ema;
+//    }
+
+    public static Double computeEMA(List<Double> closes, int period) {
+        if (closes == null || closes.size() < period) {
+            return null; // Not enough data to calculate EMA
         }
+
+        // Calculate initial SMA for first 'period' closes
+        double sma = closes.subList(0, period).stream()
+                .mapToDouble(Double::doubleValue)
+                .average()
+                .orElse(0.0);
+
+        double k = 2.0 / (period + 1);
+        double ema = sma;
+
+        // Calculate EMA for days after initial period
+        for (int i = period; i < closes.size(); i++) {
+            double price = closes.get(i);
+            ema = price * k + ema * (1 - k);
+        }
+
         return ema;
     }
 
-    private Double computeRSI(List<Double> closes, int period) {
-        if (closes.size() < period + 1) return null;
-        double gains = 0, losses = 0;
-        for (int i = closes.size() - period; i < closes.size(); i++) {
+//    private Double computeRSI(List<Double> closes, int period) {
+//        if (closes.size() < period + 1) return null;
+//        double gains = 0, losses = 0;
+//        for (int i = closes.size() - period; i < closes.size(); i++) {
+//            double change = closes.get(i) - closes.get(i - 1);
+//            if (change >= 0) gains += change;
+//            else losses -= change;
+//        }
+//        double rs = (losses == 0) ? 100 : (gains / losses);
+//        return 100 - (100 / (1 + rs));
+//    }
+
+    public static Double computeRSI(List<Double> closes, int period) {
+//        if (closes == null || closes.size() < period) {
+//            // Need at least period + 1 closes to calculate RSI
+//            return null;
+//        }
+
+        double gainSum = 0;
+        double lossSum = 0;
+
+        // Calculate gains and losses for the first 'period' days
+        for (int i = 1; i <= period; i++) {
             double change = closes.get(i) - closes.get(i - 1);
-            if (change >= 0) gains += change;
-            else losses -= change;
+            if (change > 0) {
+                gainSum += change;
+            } else {
+                lossSum += -change;  // Loss is positive value
+            }
         }
-        double rs = (losses == 0) ? 100 : (gains / losses);
-        return 100 - (100 / (1 + rs));
+
+        double avgGain = gainSum / period;
+        double avgLoss = lossSum / period;
+
+        // Avoid division by zero
+        if (avgLoss == 0) {
+            return 100.0;  // RSI is 100 if no losses
+        }
+
+        double rs = avgGain / avgLoss;
+        double rsi = 100 - (100 / (1 + rs));
+
+        return rsi;
+    }
+
+    public static double calculateRSIFor14Days(List<Double> closes) {
+
+        double gainSum = 0;
+        double lossSum = 0;
+
+        for (int i = 1; i < closes.size(); i++) {
+            double change = closes.get(i-1) - closes.get(i);
+            if (change > 0) {
+                gainSum += change;
+            } else {
+                lossSum += -change;
+            }
+        }
+
+        double avgGain = gainSum / 14;
+        double avgLoss = lossSum / 14;
+
+        if (avgLoss == 0) {
+            return 100.0; // RSI is 100 if no losses
+        }
+
+        double rs = avgGain / avgLoss;
+        double rsi = 100 - (100 / (1 + rs));
+        return rsi;
     }
 
     private Double[] computeBollinger(List<Double> closes, int period, double numStdDev) {
@@ -906,7 +1335,7 @@ public class ImageController {
         return new Double[]{mean + numStdDev * stdDev, mean - numStdDev * stdDev};
     }
 
-//    private double round(double value) {
+    //    private double round(double value) {
 //        return Math.round(value * 100.0) / 100.0;
 //    }
     // Compute investment view (trend, risk, signal)
@@ -1126,6 +1555,280 @@ public class ImageController {
         }
     }
 
+    @PostMapping("memory/extracted/analyseImageAndCSV")
+    public ResponseEntity<?> analyzeImageAndextractedCSV(@RequestBody FilePathRequest request) throws IOException {
+        try (CSVReader reader = new CSVReader(new FileReader(request.getPath()))) {
+            List<String[]> rows = reader.readAll();
+            JSONObject data = new JSONObject();
+//            rows.remove(0);
+
+            List<DailyOHLCRecords> dailyOHLCRecords = new ArrayList<>();
+            List<Double> closes = new ArrayList<>();
+
+            //ohlcv calculation
+            for (int i = rows.size() - 1; i >= 1; i--) {
+                String[] row = rows.get(i);
+
+                DailyOHLCRecords ohlcRecord = new DailyOHLCRecords();
+
+                LocalDate parsedDate = LocalDate.parse(row[0].trim(), Utility.INPUT_DATE_FORMAT);
+                String isoDate = parsedDate.format(Utility.ISO_DATE_FORMAT);
+
+                ohlcRecord.setDate(isoDate);
+                ohlcRecord.setOpen(Double.parseDouble(row[2].replace(",", "")));
+                ohlcRecord.setHigh(Double.parseDouble(row[3].replace(",", "")));
+                ohlcRecord.setLow(Double.parseDouble(row[4].replace(",", "")));
+                ohlcRecord.setClose(Double.parseDouble(row[7].replace(",", "")));
+                closes.add(ohlcRecord.getClose());
+                ohlcRecord.setPrevClose(Double.parseDouble(row[5].replace(",", "")));
+                ohlcRecord.setLtp(Double.parseDouble(row[6].replace(",", "")));
+                ohlcRecord.setVolume(Long.parseLong(row[11].replace(",", "")));
+
+                dailyOHLCRecords.add(ohlcRecord);
+            }
+
+            //change and perc change calculation
+            for (DailyOHLCRecords record : dailyOHLCRecords) {
+                double close = record.getClose(), open = record.getOpen();
+                double change = close - open;
+                change = Math.round(change * 100.0) / 100.0;
+                record.setChange(change);
+                double changePct = (open != 0) ? (change / open) * 100.0 : 0.0;
+                changePct = Math.round(changePct * 100.0) / 100.0;
+                record.setChangePct(changePct);
+            }
+
+            //ma calculation
+            for (int i = 1; i < dailyOHLCRecords.size(); i++) {
+                DailyOHLCRecords record = dailyOHLCRecords.get(i - 1);
+
+                if (i >= 7) {
+                    double l = movingAverage(closes.subList(i - 7, i), 7);
+                    record.setMa7((double) Math.round(l * 100) / 100);
+                }
+
+                if (i >= 10) {
+                    double l = movingAverage(closes.subList(i - 10, i), 10);
+                    record.setMa10((double) Math.round(l * 100) / 100);
+                }
+
+                if (i >= 20) {
+                    double l = movingAverage(closes.subList(i - 20, i), 20);
+                    record.setMa20((double) Math.round(l * 100) / 100);
+                }
+
+                if (i >= 30) {
+                    double l = movingAverage(closes.subList(i - 30, i), 30);
+                    record.setMa30((double) Math.round(l * 100) / 100);
+                }
+
+                if (i >= 50) {
+                    double l = movingAverage(closes.subList(i - 50, i), 50);
+                    record.setMa50((double) Math.round(l * 100) / 100);
+                }
+            }
+
+            //rsi calculation
+//            for(int i = 0; i < dailyOHLCRecords.size(); i++) {
+//                System.out.println(dailyOHLCRecords.size());
+//                DailyOHLCRecords record = dailyOHLCRecords.get(i);
+//
+//                if (i >= 15)
+//                    record.setRsi14((double)Math.round((calculateRSIFor14Days(closes.subList(i-15, i-1)))*100)/100);
+//            }
+
+            List<Double> macdSeries = new ArrayList<>();
+
+//            //macd calculation
+//            for(int i = 0; i < dailyOHLCRecords.size(); i++)
+//            {
+//                DailyOHLCRecords record = dailyOHLCRecords.get(i);
+//
+//                Double ema12 = null;
+//                Double ema26 = null;
+//
+//                if(i>=12)
+//                    ema12 = computeEMA(closes.subList(i-12, i), 12);
+//
+//                if(i>=26)
+//                    ema26 = computeEMA(closes.subList(i-26, i), 26);
+//
+//                Double macd = null;
+//
+//                if (ema12 != null && ema26 != null) {
+//                    macd = ema12 - ema26;
+//                    record.setMacd((double)Math.round(macd*100)/100);
+//                    macdSeries.add((double)Math.round(macd*100)/100);
+//                }
+//                else
+//                    macdSeries.add((double)0);
+//            }
+
+//            for(int i = 0; i < dailyOHLCRecords.size(); i++) {
+//                DailyOHLCRecords record = dailyOHLCRecords.get(i);
+//
+//                if(i>=26) {
+//                    double signal = (double) Math.round(computeEMA(macdSeries.subList(i - 9, i), 9) * 100) / 100;
+//                    record.setMacdSignal(signal);
+//                    record.setMacdHistogram((double)Math.round((macdSeries.get(i) - signal)*100)/100);
+//                }
+//
+//                System.out.println(record.toString());
+//            }
+
+            //bollinger band
+            for (int i = 1; i < dailyOHLCRecords.size(); i++) {
+                DailyOHLCRecords record = dailyOHLCRecords.get(i - 1);
+
+                Double[] boll = null;
+
+                if (i >= 20) {
+                    boll = computeBollinger(closes.subList(i - 20, i), 20, 2.0);
+                    record.setBollUpper((double) Math.round(boll[0] * 100) / 100);
+                    record.setBollLower((double) Math.round(boll[1] * 100) / 100);
+                }
+            }
+
+            Map<String, List<String[]>> monthlyMap = new LinkedHashMap<>();
+            JSONObject monthlySummaryJson = new JSONObject();
+
+            for (int i = 1; i < rows.size()-1; i++) {
+                String[] row = rows.get(i);
+                DailyOHLCRecords record = dailyOHLCRecords.get(i);
+
+                LocalDate parsedDate = LocalDate.parse(row[0].trim(), Utility.INPUT_DATE_FORMAT);
+                String monthKey = parsedDate.format(Utility.ISO_MONTH_FORMAT); // e.g., "Apr-25"
+                monthlyMap.computeIfAbsent(monthKey, k -> new ArrayList<>()).add(row);
+            }
+
+            JSONArray monthlyRow = new JSONArray();
+
+            for (Map.Entry<String, List<String[]>> entry : monthlyMap.entrySet()) {
+                String month = entry.getKey();
+                List<String[]> monthRows = entry.getValue();
+
+                double open = Double.parseDouble(monthRows.get(0)[2].replace(",", ""));
+                double close = Double.parseDouble(monthRows.get(monthRows.size() - 1)[7].replace(",", ""));
+                double high = monthRows.stream().mapToDouble(r -> Double.parseDouble(r[3].replace(",", ""))).max().orElse(0);
+                double low = monthRows.stream().mapToDouble(r -> Double.parseDouble(r[4].replace(",", ""))).min().orElse(0);
+                long volume = monthRows.stream().mapToLong(r -> Long.parseLong(r[11].replace(",", ""))).sum();
+
+//
+//                monthlyRow.put(month);
+//                monthlyRow.put(round(open));
+//                monthlyRow.put(round(high));
+//                monthlyRow.put(round(low));
+//                monthlyRow.put(round(close));
+//                monthlyRow.put(volume);
+//                monthlySummaryJson.put("MonthlySummary",monthlyRow);
+
+                JSONObject js = new JSONObject();
+                js.put("month", month);
+                js.put("open", open);
+                js.put("high", high);
+                js.put("low", low);
+                js.put("close", close);
+                js.put("volume", volume);
+
+                monthlyRow.put(js);
+            }
+
+            JSONArray jsonArray = new JSONArray();
+
+            for (int i = dailyOHLCRecords.size() - 90; i < dailyOHLCRecords.size(); i++) {
+                DailyOHLCRecords record = dailyOHLCRecords.get(i - 1);
+
+                JSONObject js = new JSONObject();
+                js.put("date", record.getDate());
+                js.put("open", record.getOpen());
+                js.put("high", record.getHigh());
+                js.put("low", record.getLow());
+                js.put("close", record.getClose());
+                js.put("volume", record.getVolume());
+                js.put("change percentage", record.getChangePct());
+                js.put("Moving Average of 7 days", record.getMa7());
+                js.put("Moving Average of 10 days", record.getMa10());
+                js.put("Moving Average of 20 days", record.getMa20());
+                js.put("Moving Average of 30 days", record.getMa30());
+                js.put("Moving Average of 50 days", record.getMa50());
+
+                if (record.getClose() < record.getBollLower())
+                    js.put("bollingerband crossover", "lower band crossed");
+                else if (record.getClose() > record.getBollUpper())
+                    js.put("bollingerband crossover", "upper band crossed");
+                else
+                    js.put("bollingerband crossover", "In range");
+
+                jsonArray.put(js);
+            }
+
+            data.put("Recent_Data", jsonArray);
+            data.put("Monthly_summary", monthlyRow);
+
+            LocalDate today = LocalDate.now();
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy");
+            String formattedDate = today.format(formatter);
+
+            String systemInstruction = String.format("""
+                        You are a highly skilled technical stock market analyst.
+                        Analyze the provided OHLCV data of %s company and generate detailed, date-specific, actionable insights.
+                        Focus only on the data provided.
+                        Include:
+                        - Trend analysis (short/medium/long term)
+                        - Support/resistance levels (date-specific)
+                        - Candlestick patterns
+                        - Volume analysis
+                        - Breakouts/gaps
+                        - Final outlook (bullish/bearish/neutral)
+                    """, request.getCompanyName());
+
+            // User prompt
+            String userPrompt = String.format("""
+                            Today's date is: %s
+
+                            Stock Data:
+                            - Recent 90 OHLCV Daily records with moving averages and bollinger band crossover is given: %s
+                            - MonthlySummary OHLCV: %s
+
+                            Your task:
+                            1. Short-term (days to weeks) trend analysis
+                            2. Medium-term (weeks to months) trend analysis
+                            3. Identify key support and resistance levels (based on given recent_daily data refer the recent_daily_columns to understand find support and resistences also all the amount is in rupees)
+                            4. Given the 60 days data in recent_daily data, detect moving average crossovers (10, 20, 50-day). Columns names are present in recent_daily_columnss
+                            5. Analyse and find out the candlestick patterns with exact dates based on the data given 60 days data in recent_daily. Columns names are present in recent_daily_columns
+                            6. Volume spikes or divergence patterns
+                            8. Highlight any breakout or gap events
+                            9. Provide a final trading outlook (buy/sell/hold) and reasoning
+                            10. If no signals are present, explicitly note that
+
+                            Only use the data provided above. Be analytical, concise, and reference exact dates.
+                            While doing analysis keep in mind today's date: %s and do the analysis based on that as well.
+                            """,
+                    formattedDate,
+                    data.get("Recent_Data"),
+                    data.get("Monthly_summary"),
+                    formattedDate
+            );
+
+            LOGGER.info("systemInstruction : " + systemInstruction);
+            LOGGER.info("userPrompt: " + userPrompt);
+
+
+            String analysisResponse = memoryChatClient.prompt()
+                    .system(systemInstruction)
+                    .user(userPrompt)
+                    .call()
+                    .content();
+
+            return ResponseEntity.ok(analysisResponse);
+        }
+
+        catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+
     @PostMapping("/memory/askAboutChart")
     public ResponseEntity<?> imageToTextAskAboutChart(@RequestBody String input) {
         try {
@@ -1142,7 +1845,7 @@ public class ImageController {
 
             String combinedContext = "";
 
-                    String systemPrompt = """
+            String systemPrompt = """
                         You are a professional technical analyst.
                         
                         You are answering user questions using only the analysis context below. 
