@@ -1735,22 +1735,25 @@ public class ImageController {
 
             JSONArray jsonArray = new JSONArray();
 
+            String startDate = dailyOHLCRecords.get(dailyOHLCRecords.size()-90).getDate();
+            String endDate = dailyOHLCRecords.getLast().getDate();
+
             for (int i = dailyOHLCRecords.size() - 90; i < dailyOHLCRecords.size(); i++) {
                 DailyOHLCRecords record = dailyOHLCRecords.get(i - 1);
 
                 JSONObject js = new JSONObject();
-                js.put("date", record.getDate());
-                js.put("open", record.getOpen());
-                js.put("high", record.getHigh());
-                js.put("low", record.getLow());
-                js.put("close", record.getClose());
-                js.put("volume", record.getVolume());
-                js.put("change percentage", record.getChangePct());
-                js.put("Moving Average of 7 days", record.getMa7());
-                js.put("Moving Average of 10 days", record.getMa10());
-                js.put("Moving Average of 20 days", record.getMa20());
-                js.put("Moving Average of 30 days", record.getMa30());
-                js.put("Moving Average of 50 days", record.getMa50());
+                js.put("Date", record.getDate());
+                js.put("Open", record.getOpen());
+                js.put("High", record.getHigh());
+                js.put("Low", record.getLow());
+                js.put("Close", record.getClose());
+                js.put("Volume", record.getVolume());
+                js.put("Daily price change percentage", record.getChangePct());
+                js.put("7 days Moving Average", record.getMa7());
+                js.put("10 days Moving Average", record.getMa10());
+                js.put("20 days Moving Average", record.getMa20());
+                js.put("30 days Moving Average", record.getMa30());
+                js.put("50 days Moving Average", record.getMa50());
 
                 if (record.getClose() < record.getBollLower())
                     js.put("bollingerband crossover", "lower band crossed");
@@ -1783,28 +1786,59 @@ public class ImageController {
                     """, request.getCompanyName());
 
             // User prompt
+//            String userPrompt = String.format("""
+//                            Today's date is: %s
+//
+//                            Stock Data:
+//                            - Recent 90 OHLCV Daily records with moving averages and bollinger band crossover is given, the start date is %s and the end date is %s of the given data: %s
+//                            - Monthly Summary of OHLCV: %s
+//
+//                            Your task:
+//                            1. Short-term (days to weeks) trend analysis
+//                            2. Medium-term (weeks to months) trend analysis
+//                            3. Identify key support and resistance levels (based on given recent 90 OHLCV Daily records find support and resistance, also all the amount is in rupees). Also provide support and resistance levels based on last 60 days data.
+//                            4. Given the recent 90 OHLCV Daily records, detect moving average crossovers (10, 20, 50-day).
+//                            5. Analyse and find out the candlestick patterns with exact dates based on the data given recent 90 OHLCV Daily records.
+//                            6. Analyse Volume spikes or divergence patterns
+//                            8. Highlight any breakout or gap events
+//                            9. Provide a final trading outlook (buy/sell/hold) and reasoning
+//                            10. If no signals are present, explicitly note that
+//
+//                            Only use the data provided above. Be analytical, concise, and reference exact dates.
+//                            While doing analysis keep in mind today's date: %s and do the analysis based on that as well.
+//                            Based on your expert level technical analysis, questions will be asked.
+//                            """,
+//                    formattedDate,
+//                    startDate,
+//                    endDate,
+//                    data.get("Recent_Data"),
+//                    data.get("Monthly_summary"),
+//                    formattedDate
+//            );
             String userPrompt = String.format("""
                             Today's date is: %s
 
                             Stock Data:
-                            - Recent 90 OHLCV Daily records with moving averages and bollinger band crossover is given: %s
-                            - MonthlySummary OHLCV: %s
+                            - Recent 90 OHLCV Daily records with moving averages and bollinger band crossover is given, the start date is %s and the end date is %s of the given data: %s
+                            - Monthly Summary of OHLCV: %s
 
                             Your task:
                             1. Short-term (days to weeks) trend analysis
                             2. Medium-term (weeks to months) trend analysis
-                            3. Identify key support and resistance levels (based on given recent_daily data refer the recent_daily_columns to understand find support and resistences also all the amount is in rupees)
-                            4. Given the 60 days data in recent_daily data, detect moving average crossovers (10, 20, 50-day). Columns names are present in recent_daily_columnss
-                            5. Analyse and find out the candlestick patterns with exact dates based on the data given 60 days data in recent_daily. Columns names are present in recent_daily_columns
-                            6. Volume spikes or divergence patterns
+                            3. Identify key support and resistance levels (based on given recent 90 OHLCV Daily records find support and resistance, also all the amount is in rupees). Also provide support and resistance levels based on last 60 days data.
+                            4. Given the recent 90 OHLCV Daily records, detect moving average crossovers (10, 20, 50-day).
+                            5. Analyse and find out the candlestick patterns with exact dates based on the data given recent 90 OHLCV Daily records.
+                            6. Analyse Volume spikes or divergence patterns
                             8. Highlight any breakout or gap events
                             9. Provide a final trading outlook (buy/sell/hold) and reasoning
                             10. If no signals are present, explicitly note that
 
                             Only use the data provided above. Be analytical, concise, and reference exact dates.
-                            While doing analysis keep in mind today's date: %s and do the analysis based on that as well.
+                            Based on your expert level technical analysis, questions will be asked.
                             """,
                     formattedDate,
+                    startDate,
+                    endDate,
                     data.get("Recent_Data"),
                     data.get("Monthly_summary"),
                     formattedDate
@@ -1819,6 +1853,8 @@ public class ImageController {
                     .user(userPrompt)
                     .call()
                     .content();
+
+            LOGGER.info("Analysis done: " + analysisResponse);
 
             return ResponseEntity.ok(analysisResponse);
         }
@@ -1877,6 +1913,8 @@ public class ImageController {
                     .user(userPrompt)
                     .call()
                     .content();
+
+            LOGGER.info("Answer is : " + answer);
 
             return ResponseEntity.ok(answer);
         } catch (Exception e) {
