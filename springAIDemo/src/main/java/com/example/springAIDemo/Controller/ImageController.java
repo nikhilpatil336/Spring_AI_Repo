@@ -1816,8 +1816,47 @@ public class ImageController {
 //                    formattedDate
 //            );
             String userPrompt = String.format("""
+                            Stock Data (last 7 days):
+                            Example:
+                            [
+                              { "Date": "2025-09-20", "Open": 240.0, "High": 245.0, "Low": 238.0, "Close": 243.5, "Volume": 1800000, "Daily price change percentage": 1.46, "7 days Moving Average": 239.8, "10 days Moving Average": 237.5, "20 days Moving Average": 233.2, "50 days Moving Average": 229.1, "bollingerband crossover": "In range" },
+                              { "Date": "2025-09-21", "Open": 243.5, "High": 247.0, "Low": 241.0, "Close": 246.8, "Volume": 1900000, "Daily price change percentage": 1.36, "7 days Moving Average": 241.2, "10 days Moving Average": 238.3, "20 days Moving Average": 234.5, "50 days Moving Average": 230.3, "bollingerband crossover": "In range" },
+                              { "Date": "2025-09-22", "Open": 246.0, "High": 250.0, "Low": 244.0, "Close": 249.2, "Volume": 2200000, "Daily price change percentage": 1.3, "7 days Moving Average": 243.3, "10 days Moving Average": 240.1, "20 days Moving Average": 236.1, "50 days Moving Average": 231.9, "bollingerband crossover": "upper band crossed" },
+                              { "Date": "2025-09-23", "Open": 249.5, "High": 251.0, "Low": 247.0, "Close": 248.0, "Volume": 2100000, "Daily price change percentage": -0.48, "7 days Moving Average": 244.7, "10 days Moving Average": 241.8, "20 days Moving Average": 237.5, "50 days Moving Average": 233.2, "bollingerband crossover": "In range" },
+                              { "Date": "2025-09-24", "Open": 248.0, "High": 252.0, "Low": 247.0, "Close": 251.5, "Volume": 2500000, "Daily price change percentage": 1.41, "7 days Moving Average": 246.2, "10 days Moving Average": 243.6, "20 days Moving Average": 239.3, "50 days Moving Average": 234.7, "bollingerband crossover": "upper band crossed" },
+                              { "Date": "2025-09-25", "Open": 252.0, "High": 255.0, "Low": 250.0, "Close": 254.8, "Volume": 2700000, "Daily price change percentage": 1.11, "7 days Moving Average": 248.3, "10 days Moving Average": 245.5, "20 days Moving Average": 241.0, "50 days Moving Average": 236.2, "bollingerband crossover": "upper band crossed" },
+                              { "Date": "2025-09-26", "Open": 255.0, "High": 257.5, "Low": 253.0, "Close": 256.2, "Volume": 3000000, "Daily price change percentage": 0.55, "7 days Moving Average": 250.7, "10 days Moving Average": 247.8, "20 days Moving Average": 242.6, "50 days Moving Average": 237.6, "bollingerband crossover": "upper band crossed" }
+                            ]
+                            
+                            Analysis:
+                            1. **Short-term trend (days to weeks)**: Bullish. From 20th to 26th Sept, the stock has shown consistent higher highs and closes. The price is trading above all key moving averages (7, 10, 20, 50-day), with upward-sloping MAs.
+                            
+                            2. **Medium-term trend (weeks to months)**: Bullish. All moving averages are trending upward and the 50-day MA is significantly below the current price, confirming momentum.
+                            
+                            3. **Support & Resistance Levels**:
+                               - Resistance: ₹257.5 (Sept 26th high)
+                               - Support: ₹243.5 (Sept 20th close), ₹248 (Sept 23rd low)
+                            
+                            4. **Moving Average Crossovers**:
+                               - 10-day MA crossed above 20-day MA on approx. Sept 20–21 → short-term bullish signal
+                               - 20-day MA crossed above 50-day MA around Sept 22 → confirms medium-term trend change
+                            
+                            5. **Candlestick Patterns**:
+                               - Sept 22: Bullish Marubozu (strong close near high with volume surge)
+                               - Sept 25: Bullish continuation (small body after breakout)
+                            
+                            6. **Volume Analysis**:
+                               - Strong volume increase from Sept 22 onward (from ~2.2M to 3M), confirming breakout and buying interest
+                            
+                            7. **Breakouts/Gaps**:
+                               - Price broke above upper Bollinger Band on Sept 22 and stayed above — classic breakout signal
+                            
+                            8. **Final Outlook**:
+                               - **Buy**. The stock is in a confirmed short- and medium-term uptrend with strong volume and momentum. Entry near ₹254–₹256 with support around ₹248.
+                           
                             Today's date is: %s
 
+                            Now, analyze the following data:
                             Stock Data:
                             - Recent 90 OHLCV Daily records with moving averages and bollinger band crossover is given, the start date is %s and the end date is %s of the given data: %s
                             - Monthly Summary of OHLCV: %s
