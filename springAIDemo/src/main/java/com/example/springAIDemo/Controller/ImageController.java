@@ -51,9 +51,12 @@ public class ImageController {
     private Logger LOGGER = LoggerFactory.getLogger(ImageController.class);
 
     private ChatClient ollamaChatClient;
+    private ChatMemory chatMemory;
     private ChatClient memoryChatClient;
 
     private SimpleVectorStore store = null;
+
+    private String CONVERSATION_ID = "";
 
     @Autowired
     public VectorDB vectorDB;
@@ -68,6 +71,7 @@ public class ImageController {
     Resource sampleImage;
 
     public ImageController(ChatClient.Builder builder, ChatMemory chatMemory, OllamaChatModel ollamaChatModel) {
+        this.chatMemory = chatMemory;
         this.ollamaChatClient = ChatClient.create(ollamaChatModel);
         this.memoryChatClient = builder.defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build()).build();
     }
@@ -1557,6 +1561,16 @@ public class ImageController {
 
     @PostMapping("memory/extracted/analyseImageAndCSV")
     public ResponseEntity<?> analyzeImageAndextractedCSV(@RequestBody FilePathRequest request) throws IOException {
+        String filePathName = request.getPath();
+        String companyName = request.getCompanyName();
+
+        String[] splitPath = filePathName.split("/");
+        String fileName = splitPath[splitPath.length - 1];
+
+        LOGGER.info("File name: " + fileName);
+
+        CONVERSATION_ID = fileName;
+
         try (CSVReader reader = new CSVReader(new FileReader(request.getPath()))) {
             List<String[]> rows = reader.readAll();
             JSONObject data = new JSONObject();
@@ -1741,26 +1755,48 @@ public class ImageController {
             for (int i = dailyOHLCRecords.size() - 90; i < dailyOHLCRecords.size(); i++) {
                 DailyOHLCRecords record = dailyOHLCRecords.get(i - 1);
 
-                JSONObject js = new JSONObject();
-                js.put("Date", record.getDate());
-                js.put("Open", record.getOpen());
-                js.put("High", record.getHigh());
-                js.put("Low", record.getLow());
-                js.put("Close", record.getClose());
-                js.put("Volume", record.getVolume());
-                js.put("Daily price change percentage", record.getChangePct());
-                js.put("7 days Moving Average", record.getMa7());
-                js.put("10 days Moving Average", record.getMa10());
-                js.put("20 days Moving Average", record.getMa20());
-                js.put("30 days Moving Average", record.getMa30());
-                js.put("50 days Moving Average", record.getMa50());
+//                JSONObject js = new JSONObject();
+//                js.put("Date", record.getDate());
+//                js.put("Open", record.getOpen());
+//                js.put("High", record.getHigh());
+//                js.put("Low", record.getLow());
+//                js.put("Close", record.getClose());
+//                js.put("Volume", record.getVolume());
+//                js.put("Daily price change percentage", record.getChangePct());
+//                js.put("7 days Moving Average", record.getMa7());
+//                js.put("10 days Moving Average", record.getMa10());
+//                js.put("20 days Moving Average", record.getMa20());
+//                js.put("30 days Moving Average", record.getMa30());
+//                js.put("50 days Moving Average", record.getMa50());
+//
+//                if (record.getClose() < record.getBollLower())
+//                    js.put("bollingerband crossover", "lower band crossed");
+//                else if (record.getClose() > record.getBollUpper())
+//                    js.put("bollingerband crossover", "upper band crossed");
+//                else
+//                    js.put("bollingerband crossover", "In range");
 
+                JSONObject js = new JSONObject();
+                js.put("d", record.getDate());
+                js.put("o", record.getOpen());
+                js.put("h", record.getHigh());
+                js.put("l", record.getLow());
+                js.put("c", record.getClose());
+                js.put("v", record.getVolume());
+                js.put("chg%", record.getChangePct());
+                js.put("ma7", record.getMa7());
+                js.put("ma10", record.getMa10());
+                js.put("ma20", record.getMa20());
+                js.put("ma30", record.getMa30());
+                js.put("ma50", record.getMa50());
+
+                // Bollinger Band crossover (bbx)
                 if (record.getClose() < record.getBollLower())
-                    js.put("bollingerband crossover", "lower band crossed");
+                    js.put("bbx", "lower");
                 else if (record.getClose() > record.getBollUpper())
-                    js.put("bollingerband crossover", "upper band crossed");
+                    js.put("bbx", "upper");
                 else
-                    js.put("bollingerband crossover", "In range");
+                    js.put("bbx", "in");
 
                 jsonArray.put(js);
             }
@@ -1775,6 +1811,7 @@ public class ImageController {
             String systemInstruction = String.format("""
                         You are a highly skilled technical stock market analyst.
                         Analyze the provided OHLCV data of %s company and generate detailed, date-specific, actionable insights.
+                        Do not assume it is a cryptocurrency. Base your analysis strictly on stock market behavior.
                         Focus only on the data provided.
                         Include:
                         - Trend analysis (short/medium/long term)
@@ -1816,71 +1853,106 @@ public class ImageController {
 //                    formattedDate
 //            );
             String userPrompt = String.format("""
-                            Stock Data (last 7 days):
-                            Example:
-                            [
-                              { "Date": "2025-09-20", "Open": 240.0, "High": 245.0, "Low": 238.0, "Close": 243.5, "Volume": 1800000, "Daily price change percentage": 1.46, "7 days Moving Average": 239.8, "10 days Moving Average": 237.5, "20 days Moving Average": 233.2, "50 days Moving Average": 229.1, "bollingerband crossover": "In range" },
-                              { "Date": "2025-09-21", "Open": 243.5, "High": 247.0, "Low": 241.0, "Close": 246.8, "Volume": 1900000, "Daily price change percentage": 1.36, "7 days Moving Average": 241.2, "10 days Moving Average": 238.3, "20 days Moving Average": 234.5, "50 days Moving Average": 230.3, "bollingerband crossover": "In range" },
-                              { "Date": "2025-09-22", "Open": 246.0, "High": 250.0, "Low": 244.0, "Close": 249.2, "Volume": 2200000, "Daily price change percentage": 1.3, "7 days Moving Average": 243.3, "10 days Moving Average": 240.1, "20 days Moving Average": 236.1, "50 days Moving Average": 231.9, "bollingerband crossover": "upper band crossed" },
-                              { "Date": "2025-09-23", "Open": 249.5, "High": 251.0, "Low": 247.0, "Close": 248.0, "Volume": 2100000, "Daily price change percentage": -0.48, "7 days Moving Average": 244.7, "10 days Moving Average": 241.8, "20 days Moving Average": 237.5, "50 days Moving Average": 233.2, "bollingerband crossover": "In range" },
-                              { "Date": "2025-09-24", "Open": 248.0, "High": 252.0, "Low": 247.0, "Close": 251.5, "Volume": 2500000, "Daily price change percentage": 1.41, "7 days Moving Average": 246.2, "10 days Moving Average": 243.6, "20 days Moving Average": 239.3, "50 days Moving Average": 234.7, "bollingerband crossover": "upper band crossed" },
-                              { "Date": "2025-09-25", "Open": 252.0, "High": 255.0, "Low": 250.0, "Close": 254.8, "Volume": 2700000, "Daily price change percentage": 1.11, "7 days Moving Average": 248.3, "10 days Moving Average": 245.5, "20 days Moving Average": 241.0, "50 days Moving Average": 236.2, "bollingerband crossover": "upper band crossed" },
-                              { "Date": "2025-09-26", "Open": 255.0, "High": 257.5, "Low": 253.0, "Close": 256.2, "Volume": 3000000, "Daily price change percentage": 0.55, "7 days Moving Average": 250.7, "10 days Moving Average": 247.8, "20 days Moving Average": 242.6, "50 days Moving Average": 237.6, "bollingerband crossover": "upper band crossed" }
-                            ]
+                       Today's date is: %s
+                        
+                        Analyze the OHLCV data for the company "%s" from the given dataset.
+                        Do not assume it is a cryptocurrency. Base your analysis strictly on stock market behavior.
+                             
+                        Field Legend:
+                        d = Date (YYYY-MM-DD)
+                        o = Open, h = High, l = Low, c = Close, v = Volume
+                        chg%% = Daily price change percentage
+                        ma7/ma10/ma20/ma30/ma50 = 7, 10, 20, 30, 50-day Moving Averages
+                        bbx = Bollinger Band crossover (upper = price above upper band, lower = price below lower band, in = price within bands)
+                        
+                        Below are example inputs and the expected output format.
+                                                                                                                               
+                       -------------------------------------------------------------------------------
+                       ### Example 1
+                       
+                       **Input Data (7 days):**
+                       [
+                         { "d": "2025-09-20", "o": 240.0, "h": 245.0, "l": 238.0, "c": 243.5, "v": 1800000,
+                           "chg%%": 1.46, "ma7": 239.8, "ma10": 237.5, "ma20": 233.2, "ma50": 229.1, "bbx": "in" },
+                         { "d": "2025-09-21", "o": 243.5, "h": 247.0, "l": 241.0, "c": 246.8, "v": 1900000,
+                           "chg%%": 1.36, "ma7": 241.2, "ma10": 238.3, "ma20": 234.5, "ma50": 230.3, "bbx": "in" },
+                         ...
+                       ]
+                       
+                       **Expected Analysis:**
+                       1. **Short-term trend:** Bullish — Higher highs and closes; price above key moving averages.
+                       2. **Medium-term trend:** Bullish — All MAs rising; 50-day MA well below price.
+                       3. **Support/Resistance:** Support ₹243.5, ₹248 | Resistance ₹257.5.
+                       4. **MA Crossovers:** 10-day > 20-day (Sept 21), 20-day > 50-day (Sept 22) → bullish confirmation.
+                       5. **Candlestick Patterns:** Sept 22 – Bullish Marubozu; Sept 25 – Continuation candle.
+                       6. **Volume:** Volume spike from 2.2M → 3M supports breakout.
+                       7. **Breakouts:** Upper Bollinger Band breakout on Sept 22; price sustained above it.
+                       8. **Final Outlook:** **Buy** near ₹254–₹256, support around ₹248.
+                       
+                       -------------------------------------------------------------------------------
+                       ### Example 2
+                       
+                        **Input Data (5 days):**
+                        [
+                          { "d": "2025-08-15", "o": 275.0, "h": 278.0, "l": 273.0, "c": 274.0, "v": 1200000,
+                            "chg%%": -0.36, "ma7": 274.5, "ma10": 273.8, "ma20": 272.0, "ma30": 270.5, "ma50": 268.0, "bbx": "lower" },
+                          { "d": "2025-08-16", "o": 273.5, "h": 276.0, "l": 272.0, "c": 273.0, "v": 1100000,
+                            "chg%%": -0.36, "ma7": 273.8, "ma10": 273.0, "ma20": 271.5, "ma30": 270.0, "ma50": 268.0, "bbx": "in" },
+                          { "d": "2025-08-17", "o": 273.0, "h": 275.0, "l": 271.0, "c": 272.5, "v": 1150000,
+                            "chg%%": -0.18, "ma7": 273.2, "ma10": 272.5, "ma20": 271.2, "ma30": 270.0, "ma50": 268.2, "bbx": "in" },
+                          ...
+                        ]
+                       
+                       **Expected Analysis:**
+                       1. **Short-term trend:** Bearish — lower highs/lows, below short MAs.
+                       2. **Medium-term trend:** Weakening — MAs sloping down.
+                       3. **Support/Resistance:** Support ₹272; Resistance ₹278.
+                       4. **MA Crossovers:** 10-day below 20-day → bearish crossover.
+                       5. **Candlestick Patterns:** Aug 15 – Bearish Engulfing.
+                       6. **Volume:** Declining volume indicates weak buying.
+                       7. **Breakouts:** Lower Bollinger Band touched — potential oversold.
+                       8. **Final Outlook:** **Hold / Watch** — potential short-term recovery possible, wait for confirmation.
+                       
+                       -------------------------------------------------------------------------------
+                       
+                       **Recent 90-day OHLCV Data**
+                        Start Date: %s
+                        End Date: %s
+                        Data: %s
+    
+                        **Monthly OHLCV Summary:**
+                        %s
+    
+                        -------------------------------------------------------------------------------
+    
+                        **Your Task:**
+                        Using only the provided data, produce an analytical report following the exact structure shown in the examples above.
+                        Reference exact dates and price levels where applicable.
+    
+                        Specifically address:
+                        1. Short-term (days–weeks) trend
+                        2. Medium-term (weeks–months) trend
+                        3. Support & Resistance levels (based on 90 days, and separately on last 60 days)
+                        4. Moving Average crossovers (10, 20, 50-day)
+                        5. Candlestick patterns (with exact dates)
+                        6. Volume spikes or divergences
+                        7. Breakouts or gaps (e.g., Bollinger band, gaps)
+                        8. Final outlook — **Buy / Sell / Hold** with reasoning
+    
+                        If no significant signal or crossover exists, explicitly state that.
+    
+                        Your response must follow the numbered format used in the examples.
                             
-                            Analysis:
-                            1. **Short-term trend (days to weeks)**: Bullish. From 20th to 26th Sept, the stock has shown consistent higher highs and closes. The price is trading above all key moving averages (7, 10, 20, 50-day), with upward-sloping MAs.
-                            
-                            2. **Medium-term trend (weeks to months)**: Bullish. All moving averages are trending upward and the 50-day MA is significantly below the current price, confirming momentum.
-                            
-                            3. **Support & Resistance Levels**:
-                               - Resistance: ₹257.5 (Sept 26th high)
-                               - Support: ₹243.5 (Sept 20th close), ₹248 (Sept 23rd low)
-                            
-                            4. **Moving Average Crossovers**:
-                               - 10-day MA crossed above 20-day MA on approx. Sept 20–21 → short-term bullish signal
-                               - 20-day MA crossed above 50-day MA around Sept 22 → confirms medium-term trend change
-                            
-                            5. **Candlestick Patterns**:
-                               - Sept 22: Bullish Marubozu (strong close near high with volume surge)
-                               - Sept 25: Bullish continuation (small body after breakout)
-                            
-                            6. **Volume Analysis**:
-                               - Strong volume increase from Sept 22 onward (from ~2.2M to 3M), confirming breakout and buying interest
-                            
-                            7. **Breakouts/Gaps**:
-                               - Price broke above upper Bollinger Band on Sept 22 and stayed above — classic breakout signal
-                            
-                            8. **Final Outlook**:
-                               - **Buy**. The stock is in a confirmed short- and medium-term uptrend with strong volume and momentum. Entry near ₹254–₹256 with support around ₹248.
-                           
-                            Today's date is: %s
-
-                            Now, analyze the following data:
-                            Stock Data:
-                            - Recent 90 OHLCV Daily records with moving averages and bollinger band crossover is given, the start date is %s and the end date is %s of the given data: %s
-                            - Monthly Summary of OHLCV: %s
-
-                            Your task:
-                            1. Short-term (days to weeks) trend analysis
-                            2. Medium-term (weeks to months) trend analysis
-                            3. Identify key support and resistance levels (based on given recent 90 OHLCV Daily records find support and resistance, also all the amount is in rupees). Also provide support and resistance levels based on last 60 days data.
-                            4. Given the recent 90 OHLCV Daily records, detect moving average crossovers (10, 20, 50-day).
-                            5. Analyse and find out the candlestick patterns with exact dates based on the data given recent 90 OHLCV Daily records.
-                            6. Analyse Volume spikes or divergence patterns
-                            8. Highlight any breakout or gap events
-                            9. Provide a final trading outlook (buy/sell/hold) and reasoning
-                            10. If no signals are present, explicitly note that
-
-                            Only use the data provided above. Be analytical, concise, and reference exact dates.
-                            Based on your expert level technical analysis, questions will be asked.
-                            """,
-                    formattedDate,
-                    startDate,
-                    endDate,
-                    data.get("Recent_Data"),
-                    data.get("Monthly_summary"),
-                    formattedDate
+                        Only use the data provided above. Be analytical, concise, and reference exact dates.
+                        Based on your expert level technical analysis, questions will be asked.
+                        """,
+                formattedDate,
+                companyName,
+                startDate,
+                endDate,
+                data.get("Recent_Data"),
+                data.get("Monthly_summary"),
+                formattedDate
             );
 
             LOGGER.info("systemInstruction : " + systemInstruction);
@@ -1888,6 +1960,9 @@ public class ImageController {
 
 
             String analysisResponse = memoryChatClient.prompt()
+                    .advisors(MessageChatMemoryAdvisor.builder(chatMemory)
+                            .conversationId(fileName)
+                            .build())
                     .system(systemInstruction)
                     .user(userPrompt)
                     .call()
@@ -1902,7 +1977,6 @@ public class ImageController {
             throw new RuntimeException(e);
         }
     }
-
 
     @PostMapping("/memory/askAboutChart")
     public ResponseEntity<?> imageToTextAskAboutChart(@RequestBody String input) {
@@ -1948,6 +2022,69 @@ public class ImageController {
             LOGGER.info("/memory/askAboutChart user prompt: " + userPrompt);
 
             String answer = memoryChatClient.prompt()
+                    .system(systemPrompt)
+                    .user(userPrompt)
+                    .call()
+                    .content();
+
+            LOGGER.info("Answer is : " + answer);
+
+            return ResponseEntity.ok(answer);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body("Error processing request: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/memory/v2/askAboutChart")
+    public ResponseEntity<?> AskAboutChart(@RequestBody QuestionInput input) {
+        try {
+//            float[] questionEmbedding = embeddingModel.embed(input);
+
+            // Get top 10 relevant chunks
+//            embeddingServiceNew.semanticSearch(input)
+//            List<String> relevantChunks = vectorDB.search(questionEmbedding, 10);
+
+//            String relevantChunks = vectorDB.answerWithContext(input);
+//            String combinedContext = String.join("\n\n", relevantChunks);
+//
+//            LOGGER.info("relevant chunks: " + relevantChunks);
+            String fileName = input.getFileName();
+
+            LOGGER.info("File name: " + fileName);
+
+            String combinedContext = "";
+
+            String systemPrompt = """
+                        You are a professional technical analyst.
+                        
+                        You are answering user questions using only the analysis context below. 
+                        Do NOT make up or guess new patterns or data. Base all your reasoning strictly on the information in the context.
+
+                        Your answer MUST include:
+                        - Exact date(s) for any event mentioned (patterns, volume spikes, price moves)
+                        - Specific price levels when talking about support/resistance
+                        - Reasoning based on the chart or CSV summary from the context
+                        - Clear explanation for any trading suggestion (bullish/bearish/neutral)
+
+                        Be accurate, specific, and helpful for a trader.
+                    """;
+
+            String userPrompt = """
+                        Context:
+                        %s
+
+                        User Question:
+                        %s
+
+                        Based only on this context, answer with full explanation and date-specific evidence.
+                    """.formatted(combinedContext, input.getInput());
+
+            LOGGER.info("/memory/askAboutChart user prompt: " + userPrompt);
+
+            String answer = memoryChatClient.prompt()
+                    .advisors(MessageChatMemoryAdvisor.builder(chatMemory)
+                            .conversationId(fileName)
+                            .build())
                     .system(systemPrompt)
                     .user(userPrompt)
                     .call()
